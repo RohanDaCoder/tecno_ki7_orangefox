@@ -75,7 +75,12 @@ BOARD_DTB_OFFSET := 0x0bc08000
 TARGET_PREBUILT_KERNEL := $(DEVICE_PATH)/prebuilt/kernel
 TARGET_PREBUILT_DTB := $(DEVICE_PATH)/prebuilt/dtb
 TARGET_KERNEL_ARCH := arm64
-BOARD_INCLUDE_DTB_IN_BOOTIMG := true
+# NOTE: do NOT set BOARD_INCLUDE_DTB_IN_BOOTIMG here - with it set, the A12.1
+# build system makes boot.img depend on a kernel-built out/.../dtb.img, which
+# a prebuilt-kernel tree has no rule for (ninja: "missing and no known rule").
+# The DTB is embedded instead via the --dtb mkbootimg argument below (same
+# approach as the KH7n tree, whose BOARD_INCLUDE__DTB_IN_BOOTIMG has a typo
+# and is therefore effectively unset).
 BOARD_MKBOOTIMG_ARGS += --base $(BOARD_KERNEL_BASE)
 BOARD_MKBOOTIMG_ARGS += --board $(BOARD_NAME)
 BOARD_MKBOOTIMG_ARGS += --pagesize $(BOARD_KERNEL_PAGESIZE)
