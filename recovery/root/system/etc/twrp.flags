@@ -1,0 +1,63 @@
+# fstab file for TECNO Spark 10 Pro (KI7)
+# Partition names verified against /dev/block/by-name on
+# HiOS KI7-V7510AACDGHJKLMN-T-GL-250218V5302 (Android 13 / vendor A12).
+# Slot-suffixed partitions (boot_a, lk_a, tee_a ...) are listed with their
+# base name + slotselect; TWRP appends the active slot suffix at runtime.
+
+#<mnt_point>         <type>        <device>                             <mnt_flags and options>
+
+# Super (dynamic) partitions
+/system               emmc          /dev/block/mapper/system            flags=display="System";logical;slotselect;backup=1;flashimg=1;removable;wipeingui
+/vendor               emmc          /dev/block/mapper/vendor            flags=display="Vendor";logical;slotselect;backup=1;flashimg=1;removable;wipeingui
+/product              emmc          /dev/block/mapper/product           flags=display="Product";logical;slotselect;backup=1;flashimg=1;removable;wipeingui
+/system_ext           emmc          /dev/block/mapper/system_ext        flags=display="System_ext";logical;slotselect;backup=1;flashimg=1;removable;wipeingui
+
+# Userdata / Metadata / Tranfs / Storage / Magisk modules
+/metadata             ext4          /dev/block/by-name/md_udc           flags=display="Metadata";backup=1;flashimg=1;wipeingui
+/data                 f2fs          /dev/block/by-name/userdata         flags=display="Data";storage;wipeingui;fileencryption=aes-256-xts:aes-256-cts:v2,keydirectory=/metadata/vold/metadata_encryption
+/storage              f2fs          /data/media/0                       flags=display="Internal Storage";usermrf;backup=1;flashimg=1;fsflags="bind";removable
+/tranfs               ext4          /dev/block/by-name/tranfs           flags=display="Tranfs";backup=1;flashimg=1;wipeingui
+/magisk_modules       f2fs          /data/adb/modules                   flags=display="Magisk Modules";usermrf;fsflags="bind"
+
+# Boot chain (KI7 is recovery-as-boot: recovery lives in /boot)
+/boot                 emmc          /dev/block/by-name/boot             flags=display="Boot";backup=1;flashimg=1;slotselect
+/dtbo                 emmc          /dev/block/by-name/dtbo             flags=display="Dtbo";backup=1;flashimg=1;slotselect
+/vendor_boot          emmc          /dev/block/by-name/vendor_boot      flags=display="Vendor Boot";flashimg=1;slotselect
+/init_boot            emmc          /dev/block/by-name/init_boot        flags=display="Init Boot";flashimg=1;slotselect
+/preloader            emmc          /dev/block/by-name/preloader        flags=display="Preloader";backup=1;flashimg=1;slotselect
+
+# AVB partitions
+/vbmeta               emmc          /dev/block/by-name/vbmeta           flags=display="Vbmeta";backup=1;flashimg=1;slotselect
+/vbmeta_vendor        emmc          /dev/block/by-name/vbmeta_vendor    flags=display="Vbmeta Vendor";backup=1;flashimg=1;slotselect
+/vbmeta_system        emmc          /dev/block/by-name/vbmeta_system    flags=display="Vbmeta System";backup=1;flashimg=1;slotselect
+
+# Other partitions
+/boot_para            emmc          /dev/block/by-name/boot_para        flags=display="Boot_para";backup=1;flashimg=1
+/para                 emmc          /dev/block/by-name/para             flags=display="Para";backup=1;flashimg=1
+/misc                 emmc          /dev/block/by-name/misc             flags=display="Misc";backup=1;flashimg=1
+
+# Persistent firmware & properties
+/protect_f            ext4          /dev/block/by-name/protect1         flags=display="Protect_f";backup=1;flashimg=1
+/protect_s            ext4          /dev/block/by-name/protect2         flags=display="Protect_s";backup=1;flashimg=1
+/nvdata               ext4          /dev/block/by-name/nvdata           flags=display="Nvdata";backup=1;flashimg=1
+/nvcfg                ext4          /dev/block/by-name/nvcfg            flags=display="Nvcfg";backup=1;flashimg=1
+/persist              ext4          /dev/block/by-name/persist          flags=display="Persist";backup=1;flashimg=1
+/persistent           emmc          /dev/block/by-name/frp              flags=display="FRP";backup=1;flashimg=1;removable;wipeingui
+/nvram                emmc          /dev/block/by-name/nvram            flags=display="Nvram";backup=1;flashimg=1
+/proinfo              emmc          /dev/block/by-name/proinfo          flags=display="Proinfo";backup=1;flashimg=1
+/bootloader           emmc          /dev/block/by-name/lk               flags=display="Bootloader (lk)";backup=1;flashimg=1;slotselect
+/logo                 emmc          /dev/block/by-name/logo             flags=display="Logo";backup=1;flashimg=1;slotselect
+/expdb                 emmc          /dev/block/by-name/expdb            flags=display="Expdb";backup=1;flashimg=1
+/seccfg               emmc          /dev/block/by-name/seccfg           flags=display="Seccfg";backup=1;flashimg=1
+/tee                  emmc          /dev/block/by-name/tee              flags=display="Trustzone";backup=1;flashimg=1;slotselect
+/scp                  emmc          /dev/block/by-name/scp              flags=display="Scp";backup=1;flashimg=1;slotselect
+/sspm                 emmc          /dev/block/by-name/sspm             flags=display="Sspm";backup=1;flashimg=1;slotselect
+/gz                   emmc          /dev/block/by-name/gz               flags=display="Gz";backup=1;flashimg=1;slotselect
+/spmfw                emmc          /dev/block/by-name/spmfw            flags=display="Spmfw";backup=1;flashimg=1;slotselect
+/md1img               emmc          /dev/block/by-name/md1img           flags=display="Md1img";backup=1;flashimg=1;slotselect
+/otp                  emmc          /dev/block/by-name/otp              flags=display="Otp";flashimg=1
+/tkv                  emmc          /dev/block/by-name/tkv              flags=display="Tkv";backup=1;flashimg=1;slotselect
+
+# Removable storage
+/external_sd          auto          /dev/block/mmcblk1p1                flags=display="MicroSDcard";storage;wipeingui;removable
+/usb_otg              auto          /dev/block/sda /dev/block/sda1      flags=display="USB OTG";storage;wipeingui;removable

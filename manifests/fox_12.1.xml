@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Local manifest for the TECNO Spark 10 Pro (KI7) recovery device tree.
+
+  Usage (OrangeFox R12.1):
+    repo init -u https://gitlab.com/OrangeFox/manifest.git -b fox_12.1
+    mkdir -p .repo/local_manifests
+    cp tecno_ki7.xml .repo/local_manifests/        # this file
+    repo sync -c --no-clone-bundle --no-tags -j8
+    source build/envsetup.sh && lunch twrp_KI7-userdebug && mka recoveryimage
+
+  Works the same way for TWRP minimal AOSP:
+    repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
+-->
+<manifest>
+    <remote name="github" fetch="https://github.com" />
+
+    <project path="device/tecno/KI7"
+             name="RohanDaCoder/tecno_ki7_orangefox"
+             remote="github"
+             revision="Fox_12.1" />
+</manifest>
