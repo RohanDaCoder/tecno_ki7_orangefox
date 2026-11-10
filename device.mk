@@ -81,8 +81,11 @@ PRODUCT_PACKAGES += \
 
 # VNDK / API levels (vendor image is Android 12 / API 31)
 # Live dump: ro.board.first_api_level=30, ro.product.first_api_level=33
+# NOTE: PRODUCT_SHIPPING_API_LEVEL must stay <= BOARD_SYSTEMSDK_VERSIONS (32)
+# on the A12.1 build system (config.mk check), so we use the board's first
+# API level (30) instead of the product's (33).
 PRODUCT_TARGET_VNDK_VERSION := 31
-PRODUCT_SHIPPING_API_LEVEL := 33
+PRODUCT_SHIPPING_API_LEVEL := 30
 BOARD_SHIPPING_API_LEVEL := 30
 
 PRODUCT_PACKAGES_DEBUG += \
