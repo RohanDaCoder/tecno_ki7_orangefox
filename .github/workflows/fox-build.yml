@@ -97,20 +97,47 @@ jobs:
           ls -la "$HOME/fox_12.1/device/tecno/KI7"
 
       - name: Build OrangeFox (recovery-as-boot, virtual A/B)
+        # 'bash' WITHOUT '-e' on purpose (GitHub's default is 'bash -e'):
+        # OrangeFox's patched envsetup.sh ends with a benign
+        # '[ -s frameworks/base/... ] && ...' that returns 1 because the
+        # minimal TWRP manifest has no frameworks/base - under 'set -e'
+        # that kills the step right after the vendorsetup scan.
+        # envsetup/vendorsetup also use unset vars freely, so no 'set -u'.
+        # Errors are handled explicitly below instead.
+        shell: bash {0}
         run: |
           cd "$HOME/fox_12.1"
           export LC_ALL="C"
           export ALLOW_MISSING_DEPENDENCIES=true
           export FOX_BUILD_DEVICE="KI7"
+
+          echo "== sourcing build/envsetup.sh =="
           source build/envsetup.sh
+
+          echo "== sourcing device/tecno/KI7/vendorsetup.sh =="
           source device/tecno/KI7/vendorsetup.sh KI7
+
+          echo "== lunch twrp_KI7-eng =="
           lunch twrp_KI7-eng
-          # KI7 is a virtual A/B device with no dedicated recovery partition
-          # (BOARD_USES_RECOVERY_AS_BOOT) - per the OrangeFox wiki the image
-          # is built with the bootimage target and lands in boot.img.
+          if [ $? -ne 0 ]; then
+            echo "::error::lunch twrp_KI7-eng failed"
+            exit 1
+          fi
+
+          echo "== mka adbd bootimage (virtual A/B, recovery-as-boot) =="
+          # KI7 has no dedicated recovery partition (BOARD_USES_RECOVERY_AS_BOOT):
+          # per the OrangeFox wiki the image is built with the bootimage target
+          # and lands in boot.img.
           mka adbd bootimage
+          BUILD_RC=$?
+
           echo "---- build output ----"
-          ls -la out/target/product/KI7/*.img
+          ls -la out/target/product/KI7/*.img || true
+
+          if [ $BUILD_RC -ne 0 ]; then
+            echo "::error::mka failed with exit code $BUILD_RC"
+            exit $BUILD_RC
+          fi
 
       - name: Collect the recovery image
         run: |
