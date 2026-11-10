@@ -96,6 +96,62 @@ jobs:
           rm -rf "$HOME/fox_12.1/device/tecno/KI7/.git"
           ls -la "$HOME/fox_12.1/device/tecno/KI7"
 
+      # Upstream OrangeFox regression (recovery tip 6bd902d1, 2026-10-26):
+      # partitionmanager.cpp calls TWFunc::Create_Dir_Recursive(..., AID_MEDIA_RW, ...)
+      # without including the header that defines AID_MEDIA_RW, so the build dies at
+      # ~82% with "use of undeclared identifier 'AID_MEDIA_RW'".
+      # In AOSP 12.1 the macro lives in
+      # system/core/libcutils/include/private/android_filesystem_config.h (= 1023),
+      # and that include dir IS on the recovery compile command line.
+      # Patch every recovery source file that uses the macro without the include;
+      # the patch is conditional and becomes a no-op once upstream fixes itself.
+      - name: Patch upstream AID_MEDIA_RW regression
+        shell: bash {0}
+        run: |
+          set -u
+          cd "$HOME/fox_12.1/bootable/recovery"
+
+          HDR="$(find "$HOME/fox_12.1/system/core" \
+                 -path '*/private/android_filesystem_config.h' 2>/dev/null | head -n1)"
+          if [ -n "$HDR" ]; then
+            echo "AID header found: $HDR"
+          else
+            echo "::warning::android_filesystem_config.h not found - injecting fallback #define"
+          fi
+
+          PATCHED=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            if grep -q 'android_filesystem_config' "$f"; then
+              echo "ok (already has include): $f"
+              continue
+            fi
+            echo "patching: $f"
+            if [ -n "$HDR" ]; then
+              sed -i '0,/^#include/ s|^#include|#include <private/android_filesystem_config.h> /* OrangeFox CI fix: AID_MEDIA_RW */\n&|' "$f"
+              grep -q 'android_filesystem_config' "$f" || {
+                echo "sed anchor failed on $f - prepending instead"
+                sed -i '1i #include <private/android_filesystem_config.h> /* OrangeFox CI fix: AID_MEDIA_RW */' "$f"
+              }
+            else
+              sed -i '0,/^#include/ s|^#include|#ifndef AID_MEDIA_RW\n#define AID_MEDIA_RW 1023\n#endif /* OrangeFox CI fix */\n&|' "$f"
+              grep -q '#define AID_MEDIA_RW' "$f" || {
+                echo "sed anchor failed on $f - prepending instead"
+                sed -i '1i #ifndef AID_MEDIA_RW\n#define AID_MEDIA_RW 1023\n#endif /* OrangeFox CI fix */' "$f"
+              }
+            fi
+            PATCHED=$((PATCHED + 1))
+          done < <(grep -rl --include='*.cpp' --include='*.hpp' --include='*.h' 'AID_MEDIA_RW' .)
+
+          echo "patched $PATCHED file(s)"
+          if [ "$PATCHED" -eq 0 ]; then
+            echo "nothing to patch (upstream already fixed?) - continuing"
+          else
+            echo "--- verification (first 3 hits) ---"
+            grep -rn --include='*.cpp' --include='*.hpp' --include='*.h' \
+                 -e 'android_filesystem_config' -e '#define AID_MEDIA_RW' . | head -3 || true
+          fi
+
       - name: Build OrangeFox (recovery-as-boot, virtual A/B)
         # 'bash' WITHOUT '-e' on purpose (GitHub's default is 'bash -e'):
         # OrangeFox's patched envsetup.sh ends with a benign
