@@ -34,6 +34,23 @@ jobs:
       - name: Check out the device tree
         uses: actions/checkout@v4
 
+      # Compiler cache: reuse previously compiled objects across runs.
+      # GitHub's cache service is capped at 10 GB per repo, so we cache ONLY
+      # ccache's store (compressed object files, capped at 8 GB below) -
+      # never the ~44 GB source sync or the out/ tree (both far over quota).
+      # restore-keys give prefix fallback, so a changed device tree still
+      # reuses most of the previous cache (ccache is content-addressed, so
+      # stale entries simply miss and recompile; correctness is unaffected).
+      - name: Restore compiler cache (ccache)
+        id: ccache_cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.ccache-fox
+          key: ccache-fox_12.1-KI7-v1-${{ hashFiles('device.mk', 'BoardConfig.mk', 'twrp_KI7.mk', 'AndroidProducts.mk', 'Android.mk') }}
+          restore-keys: |
+            ccache-fox_12.1-KI7-v1-
+            ccache-fox_12.1-KI7-
+
       - name: Maximize disk space
         run: |
           df -h /
@@ -51,7 +68,7 @@ jobs:
             zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 \
             libncurses5-dev libncursesw5-dev x11proto-core-dev libx11-dev \
             lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc fontconfig \
-            libssl-dev rsync python3 python3-pip bc lzop patch cpio
+            libssl-dev rsync python3 python3-pip bc lzop patch cpio ccache
           # compat libs (present on 22.04, may vanish on newer runners)
           sudo apt-get install -y -qq libtinfo5 libncurses5 2>/dev/null \
             || echo "::warning::libtinfo5/libncurses5 unavailable - continuing"
@@ -167,6 +184,18 @@ jobs:
           export ALLOW_MISSING_DEPENDENCIES=true
           export FOX_BUILD_DEVICE="KI7"
 
+          # ccache: reuse compiled objects from previous runs (see the
+          # restore step above). CCACHE_DIR lives OUTSIDE the source tree
+          # and outside GITHUB_WORKSPACE so nothing copies or cleans it.
+          export USE_CCACHE=1
+          export CCACHE_DIR="$HOME/.ccache-fox"
+          export CCACHE_EXEC="$(command -v ccache)"
+          mkdir -p "$CCACHE_DIR"
+          ccache -M 8G        # stay under GitHub's 10 GB repo cache quota
+          ccache -z           # zero the counters for this run
+          echo "== ccache before build =="
+          ccache -s || true
+
           echo "== sourcing build/envsetup.sh =="
           source build/envsetup.sh
 
@@ -187,6 +216,9 @@ jobs:
           mka adbd bootimage
           BUILD_RC=$?
 
+          echo "== ccache after build =="
+          ccache -s || true
+
           echo "---- build output ----"
           ls -la out/target/product/KI7/*.img || true
 
@@ -194,6 +226,19 @@ jobs:
             echo "::error::mka failed with exit code $BUILD_RC"
             exit $BUILD_RC
           fi
+
+      # Save the compiler cache even when the build FAILS - while we are
+      # iterating on breakages every failed run still warms the cache for
+      # the next attempt, which is the whole point. Skipped on an exact
+      # key hit (nothing new to store). A cancelled run skips this too
+      # (post-steps do not run on cancellation), which is fine.
+      - name: Save compiler cache (ccache)
+        if: always() && steps.ccache_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ~/.ccache-fox
+          key: ccache-fox_12.1-KI7-v1-${{ hashFiles('device.mk', 'BoardConfig.mk', 'twrp_KI7.mk', 'AndroidProducts.mk', 'Android.mk') }}
 
       - name: Collect the recovery image
         run: |
