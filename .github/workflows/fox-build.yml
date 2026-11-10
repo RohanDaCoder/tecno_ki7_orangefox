@@ -32,24 +32,39 @@ jobs:
 
     steps:
       - name: Check out the device tree
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      # ccache lives INSIDE the source tree on purpose. Soong runs the ninja
+      # build inside an nsjail sandbox (build/soong/ui/build/sandbox_linux.go:
+      # "-R /" makes the whole rootfs READ-ONLY; only $TOP, $TOP/out and /tmp
+      # are bind-mounted writable). A CCACHE_DIR under $HOME dies with
+      # "Failed to create directory ...: Read-only file system".
+      - name: Prepare the ccache directory
+        run: mkdir -p "$HOME/fox_12.1/out/ccache"
 
       # Compiler cache: reuse previously compiled objects across runs.
       # GitHub's cache service is capped at 10 GB per repo, so we cache ONLY
       # ccache's store (compressed object files, capped at 8 GB below) -
-      # never the ~44 GB source sync or the out/ tree (both far over quota).
-      # restore-keys give prefix fallback, so a changed device tree still
-      # reuses most of the previous cache (ccache is content-addressed, so
-      # stale entries simply miss and recompile; correctness is unaffected).
+      # never the ~34 GB source sync or the rest of out/ (both far over quota).
+      #
+      # Key strategy: unique key per commit (github.sha), so every run SAVES
+      # a fresh full snapshot (also on failed builds - warm cache while
+      # iterating); restore-keys picks the newest prefix match; LRU eviction
+      # then keeps roughly one 8 GB entry. Device-tree or upstream changes do
+      # not need key rotation: ccache is content-addressed, stale entries
+      # simply miss and recompile. Exact-hit (re-run of the same commit) skips
+      # the save because nothing new can be stored under the same key.
+      #
+      # actions/cache v6: node24 + ESM runtime (inputs unchanged since v4).
+      # Requires runner >= 2.327.1 (hosted runners are far newer).
       - name: Restore compiler cache (ccache)
         id: ccache_cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
-          path: ~/.ccache-fox
-          key: ccache-fox_12.1-KI7-v1-${{ hashFiles('device.mk', 'BoardConfig.mk', 'twrp_KI7.mk', 'AndroidProducts.mk', 'Android.mk') }}
+          path: ~/fox_12.1/out/ccache
+          key: ccache-fox_12.1-KI7-v2-${{ github.sha }}
           restore-keys: |
-            ccache-fox_12.1-KI7-v1-
-            ccache-fox_12.1-KI7-
+            ccache-fox_12.1-KI7-v2-
 
       - name: Maximize disk space
         run: |
@@ -185,11 +200,21 @@ jobs:
           export FOX_BUILD_DEVICE="KI7"
 
           # ccache: reuse compiled objects from previous runs (see the
-          # restore step above). CCACHE_DIR lives OUTSIDE the source tree
-          # and outside GITHUB_WORKSPACE so nothing copies or cleans it.
+          # restore step above). CCACHE_DIR MUST stay inside the source tree:
+          # soong's nsjail sandbox mounts / read-only and only $TOP/$TOP/out
+          # are writable (that is what killed the first ccache attempt when
+          # CCACHE_DIR was ~/.ccache-fox).
+          #
+          # COMPILERCHECK=content: the prebuilt clang's mtime changes on every
+          # repo sync; hashing content instead keeps the cache valid across
+          # syncs. SLOPPINESS: git checkouts reset header c/mtimes each sync,
+          # which would otherwise look like changed headers -> 100% misses.
           export USE_CCACHE=1
-          export CCACHE_DIR="$HOME/.ccache-fox"
+          export CCACHE_DIR="$HOME/fox_12.1/out/ccache"
           export CCACHE_EXEC="$(command -v ccache)"
+          export CCACHE_COMPILERCHECK=content
+          export CCACHE_BASEDIR="$HOME/fox_12.1"
+          export CCACHE_SLOPPINESS="file_macro,locale,time_macros,include_file_ctime,include_file_mtime"
           mkdir -p "$CCACHE_DIR"
           ccache -M 8G        # stay under GitHub's 10 GB repo cache quota
           ccache -z           # zero the counters for this run
@@ -230,15 +255,14 @@ jobs:
       # Save the compiler cache even when the build FAILS - while we are
       # iterating on breakages every failed run still warms the cache for
       # the next attempt, which is the whole point. Skipped on an exact
-      # key hit (nothing new to store). A cancelled run skips this too
-      # (post-steps do not run on cancellation), which is fine.
+      # key hit (re-run of the same commit, nothing new to store).
       - name: Save compiler cache (ccache)
         if: always() && steps.ccache_cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         continue-on-error: true
         with:
-          path: ~/.ccache-fox
-          key: ccache-fox_12.1-KI7-v1-${{ hashFiles('device.mk', 'BoardConfig.mk', 'twrp_KI7.mk', 'AndroidProducts.mk', 'Android.mk') }}
+          path: ~/fox_12.1/out/ccache
+          key: ccache-fox_12.1-KI7-v2-${{ github.sha }}
 
       - name: Collect the recovery image
         run: |
