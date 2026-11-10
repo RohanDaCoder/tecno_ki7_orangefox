@@ -147,7 +147,9 @@ BOARD_SUPER_PARTITION_SIZE := 10522669056
 BOARD_SUPER_PARTITION_GROUPS := main
 BOARD_MAIN_SIZE := 10520571904
 BOARD_MAIN_PARTITION_LIST := system vendor product system_ext
-PRODUCT_USE_DYNAMIC_PARTITIONS := true
+# NOTE: PRODUCT_USE_DYNAMIC_PARTITIONS must NOT be set here (board config
+# marks it readonly - "cannot assign to readonly variable"); it is set in
+# device.mk, where product variables belong.
 
 # File systems
 BOARD_SYSTEMIMAGE_FILE_SYSTEM_TYPE := ext4
