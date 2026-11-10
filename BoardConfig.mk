@@ -21,16 +21,15 @@ ALLOW_MISSING_DEPENDENCIES := true
 TARGET_OTA_ASSERT_DEVICE := TECNO-KI7,KI7,ki7
 
 # Architecture (Helio G88 / MT6769H, Cortex-A75 + Cortex-A55, armv8.2)
+# 64-bit ONLY on purpose: the stock KI7 ramdisk ships zero 32-bit libs
+# (system/lib is empty, all 69 libs are in system/lib64) and every
+# TEE/keymaster blob bundled here is lib64. Building the 2nd arch just
+# doubled the library set in the recovery ramdisk and halved build speed.
 TARGET_ARCH := arm64
 TARGET_ARCH_VARIANT := armv8-2a
 TARGET_CPU_ABI := arm64-v8a
 TARGET_CPU_ABI2 :=
 TARGET_CPU_VARIANT := cortex-a55
-TARGET_2ND_ARCH := arm
-TARGET_2ND_ARCH_VARIANT := armv8-2a
-TARGET_2ND_CPU_ABI := armeabi-v7a
-TARGET_2ND_CPU_ABI2 := armeabi
-TARGET_2ND_CPU_VARIANT := cortex-a55
 TARGET_BOARD_SUFFIX := _64
 TARGET_USES_64_BIT_BINDER := true
 TARGET_SUPPORTS_64_BIT_APPS := true
@@ -138,11 +137,13 @@ BOARD_ROOT_EXTRA_FOLDERS += metadata tranfs
 
 # Partitions
 BOARD_FLASH_BLOCK_SIZE := 131072 # (BOARD_KERNEL_PAGESIZE * 64)
-BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432
-# NOTE: stock boot_a is 32 MiB. vendor_boot_a (64 MiB) and init_boot_a (8 MiB)
-# are unused (boot image header v2 keeps the full ramdisk in boot).
-# After merging boot_a + vendor_boot_a with the org's repartitioner the size
-# becomes 100663296 - change the line above if you repartition.
+# Option C (see README): OrangeFox R12.1's ramdisk cannot fit the stock
+# 32 MiB boot_a (a slimmed build still lands ~38-40 MB), so the tree targets
+# a repartitioned 96 MiB boot (stock boot_a merged with the unused 64 MiB
+# vendor_boot_a). CI still reports the image size against the STOCK 32 MiB
+# limit and flags oversized images - repartition FIRST (README Option C),
+# then flash. Do NOT flash this image to an un-repartitioned device.
+BOARD_BOOTIMAGE_PARTITION_SIZE := 100663296
 BOARD_DTBOIMG_PARTITION_SIZE := 8388608
 BOARD_HAS_LARGE_FILESYSTEM := true
 

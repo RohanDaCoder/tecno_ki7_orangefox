@@ -173,11 +173,14 @@ Or just let [GitHub Actions](#automated-builds-github-actions) build it.
 The stock `boot` partition is only **32 MiB**. A slim TWRP fits (~25-30 MB).
 OrangeFox with the default extras (bash, nano, xz, tar, ...) usually does **not**.
 
-- If your `boot.img` exceeds 32 MiB: trim `TW_EXTRA_LANGUAGES`, `TW_INCLUDE_NTFS_3G`,
-  `TW_INCLUDE_FUSE_EXFAT`, `TW_EXCLUDE_NANO := true`, `TW_EXCLUDE_BASH := true`,
-  and in `vendorsetup.sh` comment out the `FOX_USE_*` lines.
-- Or repartition `boot` to 96 MiB first (Option C below), then set
-  `BOARD_BOOTIMAGE_PARTITION_SIZE := 100663296` in `BoardConfig.mk`.
+- The tree now ships `BOARD_BOOTIMAGE_PARTITION_SIZE := 100663296` (Option C below):
+  OrangeFox R12.1 does not fit the stock 32 MiB `boot_a` even when slimmed, so the
+  build targets a repartitioned 96 MiB boot. CI flags the image size against the
+  stock 32 MiB limit - you MUST repartition before flashing (Option C).
+- To chase a 32 MiB image anyway: set `BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432`,
+  trim `TW_EXTRA_LANGUAGES`, `TW_INCLUDE_NTFS_3G`, `TW_INCLUDE_FUSE_EXFAT`,
+  `TW_EXCLUDE_BASH := true`, and in `vendorsetup.sh` comment out the `FOX_USE_*`
+  lines - expect to strip OrangeFox close to bare TWRP to fit.
 
 ## Flashing
 
