@@ -1,4 +1,5 @@
 # Identity hardware (TECNO Spark 10 Pro / KI7)
+# Tree maintained by RohanDaCoder <https://github.com/RohanDaCoder>
 Build.BRAND=MTK
 ro.hardware=mt6768
 ro.vendor.mediatek.platform=MT6768

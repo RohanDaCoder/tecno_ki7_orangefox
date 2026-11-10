@@ -1,5 +1,7 @@
 #
 # Copyright (C) 2022 The OrangeFox Recovery Project
+# Copyright (C) 2026 RohanDaCoder - TECNO Spark 10 Pro (KI7) device tree
+#                              <https://github.com/RohanDaCoder>
 #
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -49,7 +51,7 @@ if [ "$1" = "$FDEVICE" -o "$FOX_BUILD_DEVICE" = "$FDEVICE" ]; then
     # R12.1 settings
     export FOX_MAINTAINER_PATCH_VERSION=$(date +%y%m%d)
     export FOX_BUILD_TYPE="unofficial"
-    export OF_MAINTAINER="KI7-community"
+    export OF_MAINTAINER="RohanDaCoder"
 
     # Status bar (1080x2460 panel)
     export OF_SCREEN_H=2460

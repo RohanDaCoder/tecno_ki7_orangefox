@@ -1,6 +1,11 @@
-# TWRP / OrangeFox device tree for TECNO Spark 10 Pro (KI7)
+# OrangeFox R12.1 / TWRP 12.1 for TECNO Spark 10 Pro (KI7)
 
-Ready-to-build TWRP 12.1 / OrangeFox R12.1 device tree for the Tecno Spark 10 Pro
+**Maintainer:** [RohanDaCoder](https://github.com/RohanDaCoder) (AL Zami Rohan)
+
+[![Build](https://github.com/RohanDaCoder/tecno_ki7_orangefox/actions/workflows/fox-build.yml/badge.svg?branch=Fox_12.1)](https://github.com/RohanDaCoder/tecno_ki7_orangefox/actions/workflows/fox-build.yml)
+[![Releases](https://img.shields.io/github/v/release/RohanDaCoder/tecno_ki7_orangefox?include_prereleases&label=release)](https://github.com/RohanDaCoder/tecno_ki7_orangefox/releases)
+
+Ready-to-build OrangeFox R12.1 / TWRP 12.1 device tree for the Tecno Spark 10 Pro
 (codename **KI7**, board `CY-KI7-V7510`).
 
 Every board value in this tree was verified against a **live dump** of a rooted KI7
@@ -8,6 +13,28 @@ Every board value in this tree was verified against a **live dump** of a rooted 
 partition table, super layout (`lpdump`), stock fstab, display, and kernel blob.
 
 Repo: <https://github.com/RohanDaCoder/tecno_ki7_orangefox> (branch `Fox_12.1`)
+
+## Automated builds (GitHub Actions)
+
+The repo ships CI (`.github/workflows/fox-build.yml`) that builds OrangeFox R12.1
+for the KI7 on every push - no local setup needed:
+
+- **Normal commits** (push to `Fox_12.1` / `main`, or a manual *Run workflow*):
+  the recovery image is built and stored as a **workflow artifact**
+  (repo → *Actions* → the run → *Artifacts*, kept for 30 days).
+- **Releases:** push a tag that starts with `v` and CI cuts a full **GitHub
+  Release** with the image, its md5 and a bundle zip:
+
+  ```bash
+  git tag v1.0
+  git push origin v1.0
+  ```
+
+The build uses the official OrangeFox sync script (minimal TWRP 12.1 manifest +
+OrangeFox build system), pinned to `ubuntu-22.04`, and checks the image against
+the stock 32 MiB `boot_a` limit (oversized images are flagged in the artifact's
+`build_info.txt` / release notes). Expect ~2.5-4 h per build on the free
+public-repo runners.
 
 ## Device
 
@@ -48,6 +75,7 @@ recovery vs normal via `androidboot.force_normal_boot`.
 
 ```
 tecno_ki7_orangefox/   # clone as device/tecno/KI7
+├── .github/workflows/fox-build.yml                    # CI: artifacts on push, release on v* tags
 ├── manifests/fox_12.1.xml                            # local_manifest for repo sync
 ├── AndroidProducts.mk / twrp_KI7.mk / Android.mk      # lunch: twrp_KI7-userdebug
 ├── BoardConfig.mk                                     # all verified KI7 values
@@ -106,23 +134,39 @@ Output: `out/target/product/KI7/boot.img` (this IS the recovery image - recovery
 
 ### OrangeFox R12.1
 
+OrangeFox no longer publishes a standalone `fox_12.1` manifest - the official
+method is their sync script, which patches a minimal TWRP 12.1 AOSP manifest
+and layers the OrangeFox build system on top:
+
 ```bash
-mkdir ~/fox && cd ~/fox
-repo init -u https://gitlab.com/OrangeFox/manifest.git -b fox_12.1
+mkdir ~/OrangeFox_sync && cd ~/OrangeFox_sync
+git clone https://gitlab.com/OrangeFox/sync.git
+cd sync
+./orangefox_sync.sh --branch 12.1 --path ~/fox_12.1
 
-mkdir -p .repo/local_manifests
-curl -o .repo/local_manifests/tecno_ki7.xml \
-  https://raw.githubusercontent.com/RohanDaCoder/tecno_ki7_orangefox/Fox_12.1/manifests/fox_12.1.xml
+git clone https://github.com/RohanDaCoder/tecno_ki7_orangefox.git \
+    -b Fox_12.1 ~/fox_12.1/device/tecno/KI7
 
-repo sync -c --no-clone-bundle --no-tags -j8
-
+cd ~/fox_12.1
+export LC_ALL=C
+export ALLOW_MISSING_DEPENDENCIES=true
 source build/envsetup.sh
-lunch twrp_KI7-userdebug
-mka recoveryimage -j$(nproc)
+source device/tecno/KI7/vendorsetup.sh KI7
+lunch twrp_KI7-eng
+mka adbd bootimage
 ```
 
-`vendorsetup.sh` (FOX_*/OF_* env vars) is sourced automatically by the OrangeFox
-build when you lunch `twrp_KI7-*`.
+`mka adbd bootimage` (not `recoveryimage`) because the KI7 is a **virtual A/B,
+recovery-as-boot** device with no dedicated recovery partition - per the
+[OrangeFox wiki](https://wiki.orangefox.tech/dev/building).
+
+Output: `out/target/product/KI7/OrangeFox-*.img` (or `boot.img`) - this IS the
+recovery image; flash it to `boot_a`.
+
+`vendorsetup.sh` (FOX_*/OF_* env vars, incl. `OF_MAINTAINER=RohanDaCoder`)
+must be sourced **manually** before `lunch`, as shown above.
+
+Or just let [GitHub Actions](#automated-builds-github-actions) build it.
 
 ### The 32 MiB boot problem (READ THIS)
 
@@ -275,6 +319,7 @@ without decryption.
 
 ## Credits
 
+- **RohanDaCoder** - current maintainer of this tree. https://github.com/RohanDaCoder
 - **isus203 / tecno-mt6768** - the KH7n (Spark 9 Pro) OrangeFox tree this is
   derived from, the TEE userspace, bootctrl, repartition tools, and the whole
   Transsion MT6768 recovery approach. https://github.com/tecno-mt6768
