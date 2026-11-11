@@ -31,10 +31,9 @@ for the KI7 on every push - no local setup needed:
   ```
 
 The build uses the official OrangeFox sync script (minimal TWRP 12.1 manifest +
-OrangeFox build system), pinned to `ubuntu-22.04`, and checks the image against
-the stock 32 MiB `boot_a` limit (oversized images are flagged in the artifact's
-`build_info.txt` / release notes). Expect ~2.5-4 h per build on the free
-public-repo runners.
+OrangeFox build system), pinned to `ubuntu-22.04`, then **slims the image to fit
+the stock 32 MiB `boot_a`** (see below) and hard-fails if it doesn't. Expect
+~25-30 min per build on the free public-repo runners (ccache-warmed).
 
 ## Device
 
@@ -168,19 +167,40 @@ must be sourced **manually** before `lunch`, as shown above.
 
 Or just let [GitHub Actions](#automated-builds-github-actions) build it.
 
-### The 32 MiB boot problem (READ THIS)
+### The 32 MiB boot problem - SOLVED by CI slimming (READ THIS)
 
-The stock `boot` partition is only **32 MiB**. A slim TWRP fits (~25-30 MB).
-OrangeFox with the default extras (bash, nano, xz, tar, ...) usually does **not**.
+The stock `boot` partition is only **32 MiB**. A full OrangeFox R12.1 ramdisk is
+~88 MiB uncompressed (~35.5 MiB gzipped) - it does not fit, and the stock kernel
+cannot help: it only decompresses **gzip/lz4/lzo** initramfs (no xz/zstd - verified
+by extracting kallsyms from the prebuilt kernel), so the only levers are content
+cuts and max deflate.
 
-- The tree now ships `BOARD_BOOTIMAGE_PARTITION_SIZE := 100663296` (Option C below):
-  OrangeFox R12.1 does not fit the stock 32 MiB `boot_a` even when slimmed, so the
-  build targets a repartitioned 96 MiB boot. CI flags the image size against the
-  stock 32 MiB limit - you MUST repartition before flashing (Option C).
-- To chase a 32 MiB image anyway: set `BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432`,
-  trim `TW_EXTRA_LANGUAGES`, `TW_INCLUDE_NTFS_3G`, `TW_INCLUDE_FUSE_EXFAT`,
-  `TW_EXCLUDE_BASH := true`, and in `vendorsetup.sh` comment out the `FOX_USE_*`
-  lines - expect to strip OrangeFox close to bare TWRP to fit.
+CI solves it with a post-build step (`tools/slim_bootimg.py`) that surgically
+prunes the ramdisk cpio - every retained file keeps its original bytes, uid/gid
+and mode - regenerates OrangeFox's `ramdisk-files.txt` / `ramdisk-files.sha256sum`
+integrity manifests, replaces `libandroidicu.so` with a freestanding stub
+(`tools/icu_stub.c`) so 4.3 MiB of ICU can be dropped, and repacks with gzip -9.
+The result lands around **31.2 MiB** (limit 33,484,800 bytes). `BOARD_BOOTIMAGE_PARTITION_SIZE`
+stays at 96 MiB only so the *pre-slim* image passes the build's own size assert;
+the shipped artifact is the slim image and **flashes to the stock 32 MiB `boot_a`
+with no repartitioning**.
+
+**Kept** (this is still a full-featured recovery): FBE decryption stack (keystore2 +
+sqlite + keymaster/gatekeeper + the whole Trustonic TEE), `magiskboot` + the
+OrangeFox AVB / dm-verity / FRP tools that use it, adb + sideload (minadbd),
+bash (`/sbin/sh`), toybox, exFAT + FAT tools (external SD), logd, all FFiles tools,
+pigz, en / bn_BD / hi_IN languages, InterDisplay + Roboto fonts.
+
+**Removed** (verified unreferenced or acceptable losses): CJK font + 29 languages,
+nano + terminfo + gnused/gnutar (terminal editor stack), fastbootd, `update_engine_sideload`
+(payload.bin sideload), MTP lib, NTFS stack, vibrator HALs, ASAN linker + UBSAN
+runtime, hwcomposer + libxml2 (never loaded), the MediaTek pay-trigger factory
+stack, AOSP fallback UI images, ICU (stubbed), assorted orphan libs.
+The bash terminal still works; the nano editor inside it is gone.
+
+For the full audit trail of every cut - and why each is safe (ELF dependency
+graph, rc-file services, OrangeFox script references) - read the header of
+`tools/slim_bootimg.py`.
 
 ## Flashing
 
@@ -261,10 +281,12 @@ fastboot boot out/target/product/KI7/boot.img    # TRY this first - often blocke
 
 If `fastboot boot` is blocked (common on Tecno), fall back to Option A.
 
-### Option C - repartition boot to 96 MiB (for full OrangeFox)
+### Option C - repartition boot to 96 MiB (NOT NEEDED ANYMORE)
 
-`boot_a` (32 MiB) is directly followed by the **unused** `vendor_boot_a` (64 MiB) -
-same layout as KH7n, where the same org publishes a working repartitioner:
+Historical option, kept for reference: merging the unused `vendor_boot_a` (64 MiB)
+into `boot_a` for a 96 MiB boot partition. Since CI now slims the image into the
+stock 32 MiB `boot_a`, repartitioning is unnecessary for OrangeFox. Links and the
+original approach:
 
 https://github.com/tecno-mt6768/Universal-Boot-Repartitioner-GPT-Backup
 https://github.com/tecno-mt6768/Re-partitioning-kh7n

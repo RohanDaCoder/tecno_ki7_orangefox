@@ -114,14 +114,6 @@ service keymaster_attestation-1-1 /vendor/bin/vendor.mediatek.hardware.keymaster
     disabled
     seclabel u:r:recovery:s0
 
-service paytrigger_hal_service /vendor/bin/vendor.mediatek.hardware.paytrigger@1.0-service
-    interface vendor.mediatek.hardware.paytrigger@1.0::IPayTrigger default
-        class hal
-        user root
-        group root
-    disabled
-        seclabel u:r:recovery:s0
-
 on property:vendor.sys.listener.registered=true
     start mobicore
     start tee-1-1
@@ -129,8 +121,6 @@ on property:vendor.sys.listener.registered=true
     start vendor.gatekeeper-1-0
     start trustonic_check_keybox_service
     start keymaster_attestation-1-1
-    start paytrigger_hal_service
-    
 on property:hwservicemanager.ready=true
     write /proc/bootprof "MOBICORE: create /data/vendor/mcRegistry ++ (FBE encrypted)"
     write /proc/bootprof "MOBICORE: create /data/vendor/mcRegistry -- (FBE encrypted)"
@@ -140,8 +130,6 @@ on property:hwservicemanager.ready=true
     start vendor.gatekeeper-1-0
     start trustonic_check_keybox_service
     start keymaster_attestation-1-1
-    start paytrigger_hal_service
-
 on property:ro.crypto.state=unsupported
     stop mobicore
     stop tee-1-1
@@ -149,8 +137,6 @@ on property:ro.crypto.state=unsupported
     stop vendor.gatekeeper-1-0
     stop trustonic_check_keybox_service
     stop keymaster_attestation-1-1
-    stop paytrigger_hal_service
-
 on property:ro.crypto.type=file && property:ro.crypto.state=unencrypted
     stop mobicore
     stop tee-1-1
@@ -158,8 +144,6 @@ on property:ro.crypto.type=file && property:ro.crypto.state=unencrypted
     stop vendor.gatekeeper-1-0
     stop trustonic_check_keybox_service
     stop keymaster_attestation-1-1
-    stop paytrigger_hal_service
-
 on property:twrp.decrypt.done=true && property:twrp.all.users.decrypted=true
     stop mobicore
     stop tee-1-1
@@ -167,8 +151,6 @@ on property:twrp.decrypt.done=true && property:twrp.all.users.decrypted=true
     stop vendor.gatekeeper-1-0
     stop trustonic_check_keybox_service
     stop keymaster_attestation-1-1
-    stop paytrigger_hal_service
-
 on boot
      start boot-hal-1-2
      start health-hal-2-1
