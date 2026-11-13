@@ -303,6 +303,21 @@ jobs:
 
           mv "$IMG" "$IMG.full"     # keep the pre-slim image in out/ (not uploaded)
           mv "$IMG.slim" "$IMG"
+
+          # OrangeFox's build ALSO copies the FAT padded image to
+          # OrangeFox-R12.0_<date>-unofficial-KI7.img, and the Collect step
+          # prefers that name over boot.img - which is how r11 shipped the
+          # fat 96 MiB image even though the slim one was built and verified.
+          # Overwrite EVERY image name the Collect loop can pick with the
+          # slim bytes; the fat originals stay as *.full in out/ (not uploaded).
+          shopt -s nullglob
+          for f in "$OUT"/OrangeFox-*.img "$OUT/recovery.img"; do
+            [ -f "$f" ] || continue
+            case "$f" in *.full|*.slim) continue ;; esac
+            mv "$f" "$f.full"
+            cp "$IMG" "$f"
+            echo "slim replaced: $(basename "$f")"
+          done
           echo "slim boot.img: $SIZE bytes ($(numfmt --to=iec "$SIZE")) - fits the stock 32 MiB boot_a"
 
       # Save the compiler cache even when the build FAILS - while we are
