@@ -30,7 +30,9 @@ prebuilt kernel/dtb — is carried over unchanged.
 
 1. sync minimal-manifest-twrp `twrp-12.1`
 2. copy this repo into `device/tecno/KI7`
-3. `lunch twrp_KI7-eng && mka recoveryimage`
+3. `lunch twrp_KI7-eng && mka adbd bootimage` (recovery-as-boot: the
+   `recoveryimage` target is empty on such boards — building it is a no-op
+   that yields "ninja: no work to do" and no image)
 4. assert the image fits the stock 32 MiB `boot_a` (slim backstop if not)
 5. artifact `TWRP-KI7-r<run>-<ref>` containing `twrp-<version>-<date>-KI7.img`
 
@@ -67,8 +69,18 @@ cp manifests/twrp_12.1.xml .repo/local_manifests/tecno_ki7.xml
 repo sync -c --no-clone-bundle --no-tags -j8
 source build/envsetup.sh
 lunch twrp_KI7-userdebug
-mka recoveryimage
+mka adbd bootimage
 ```
+
+**Why `bootimage` and not `recoveryimage`:** KI7 is recovery-as-boot
+(`BOARD_USES_RECOVERY_AS_BOOT := true`). In this build system (TeamWin
+android-12.1 `build/make`) `INSTALLED_RECOVERYIMAGE_TARGET` is left empty on
+purpose for such boards, so `mka recoveryimage` is a phony target with zero
+dependencies — `ninja: no work to do`, "build completed successfully", and no
+image at all (that is exactly how the first CI run of this branch failed).
+`bootimage` maps to `INSTALLED_BOOTIMAGE_TARGET` (= `boot.img`, built from the
+recovery ramdisk). `adbd` is named explicitly too — belt and braces, the same
+incantation the OrangeFox flow uses.
 
 Output: `out/target/product/KI7/boot.img` (recovery-as-boot; AVB-padded to
 exactly 33,554,432 bytes = zero-padded, flashable as-is).

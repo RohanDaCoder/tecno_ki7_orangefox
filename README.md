@@ -126,7 +126,9 @@ repo sync -c --no-clone-bundle --no-tags -j8
 
 source build/envsetup.sh
 lunch twrp_KI7-userdebug
-mka recoveryimage -j$(nproc)
+mka adbd bootimage -j$(nproc)   # NOT recoveryimage: on recovery-as-boot boards
+                                # (BOARD_USES_RECOVERY_AS_BOOT := true) that
+                                # target is empty - a silent no-op with no image
 ```
 
 Output: `out/target/product/KI7/boot.img` (this IS the recovery image - recovery-as-boot).

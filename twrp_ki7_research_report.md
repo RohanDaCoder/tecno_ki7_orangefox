@@ -17,7 +17,7 @@ Why (each point sourced below):
 5. The branch README's *"FDE decryption is not presently supported in this branch"* note is irrelevant — KI7 is FBE.
 6. The current `android-12.1` recovery branch builds **TWRP 3.7.1_12** (`variables.h:20 #define TW_MAIN_VERSION_STR "3.7.1_12"`, commit 5c3d206a, 2024-05-10) — i.e. official 3.7.1-class binaries come from this base; it is not stale.
 
-Build target: `lunch twrp_KI7-eng` (or `-userdebug`), then **`mka recoveryimage`** — your `manifests/fox_12.1.xml` documents this for plain TWRP and notes the output `out/target/product/KI7/boot.img` *is* the recovery image (recovery-as-boot). The minimal-manifest README documents `mka bootimage` as the target for devices without a recovery partition — both work with `BOARD_USES_RECOVERY_AS_BOOT := true`; stay with what your tree documents.
+Build target: `lunch twrp_KI7-eng` (or `-userdebug`), then **`mka adbd bootimage`**. ~~`mka recoveryimage`~~ — **WRONG for this device, corrected 2026-11-14 after the first CI run proved it:** on `BOARD_USES_RECOVERY_AS_BOOT := true` boards the TeamWin android-12.1 `build/make` leaves `INSTALLED_RECOVERYIMAGE_TARGET` and `RECOVERY_RESOURCE_ZIP` empty on purpose (`core/Makefile`, "leave empty because INSTALLED_BOOTIMAGE_TARGET is built with recovery resources"), so `mka recoveryimage` is a phony target with zero dependencies — ninja reports "no work to do", the build "succeeds" in ~3 minutes with zero compilations and produces no image. The minimal-manifest README's guidance ("boot image ramdisk → `mka bootimage`") is the correct one for recovery-as-boot; `bootimage` maps to `INSTALLED_BOOTIMAGE_TARGET` (= `boot.img`, built from the recovery ramdisk).
 
 ---
 
@@ -35,7 +35,7 @@ Build target: `lunch twrp_KI7-eng` (or `-userdebug`), then **`mka recoveryimage`
 
 ### Q2 — Minimal manifest branches, lunch naming, makefile prefix
 - README of `twrp-12.1` (raw, verbatim key lines): `repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1`; `cd <source>; export ALLOW_MISSING_DEPENDENCIES=true; . build/envsetup.sh; lunch twrp_<device>-eng`; build targets: recovery partition → `mka recoveryimage`; **boot image ramdisk → `mka bootimage`**; vendor_boot → `mka vendorbootimage`. Special notes: *"Device makefile in the device tree and dependencies file should use the 'twrp' prefix"* and *"FDE decryption is not presently supported in this branch."* The identical prefix/FDE notes appear on twrp-11/14/14.1 READMEs.
-- Your tree already conforms: `AndroidProducts.mk` defines `twrp_KI7.mk` + `COMMON_LUNCH_CHOICES := twrp_KI7-user/-userdebug/-eng`; `manifests/fox_12.1.xml` documents the plain-TWRP flow (`lunch twrp_KI7-userdebug; mka recoveryimage`).
+- Your tree already conforms: `AndroidProducts.mk` defines `twrp_KI7.mk` + `COMMON_LUNCH_CHOICES := twrp_KI7-user/-userdebug/-eng`; `manifests/twrp_12.1.xml` documents the plain-TWRP flow (`lunch twrp_KI7-userdebug; mka adbd bootimage` — corrected 2026-11-14, see P0).
 - Same pattern in the reference trees: `twrp_KH7n.mk` (tecno-mt6768/tecno_kh7n_recovery), `twrp_CH6i.mk` (twrp_device_tecno_CH6i), `twrp_fire-eng` (fire README).
 
 ### Q3 — Prebuilt 4.19 kernel handling (evidence from real MTK trees)
@@ -198,7 +198,7 @@ TW_INCLUDE_FB2PNG := false      # optional (fire sets true — costs a few hundr
 
 **Disk requirements:** OrangeFox wiki (wiki.orangefox.tech/dev/building): "You need at least **45GB** of disk space for the fox_12.1 branch" — plain minimal twrp-12.1 is smaller; your workflow's cleanup makes it fit the free runners. For heavy iteration, a community SSH-action with 125 GB storage for up to 6 h exists (gist: gist.github.com/lopestom/d85ce99bb244d308c5e681db31018626). XDA thread "Recovery Builder for TWRP, PBRP, OFRP and SHRP using GitHub Actions" (2024-12-15): xdaforums.com/t/4708087 (snippet) walks through forking such builders.
 
-**For your TWRP branch:** clone `fox-build.yml` → swap the OrangeFox-sync steps for `repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1` + local manifest + `lunch twrp_KI7-eng` + `mka recoveryimage`; keep the pinned 22.04, the ccache block, the disk/swap steps and the size assert; rename artifacts `twrp-3.7.1_12-<date>-KI7.img` (matching the version string the branch produces).
+**For your TWRP branch:** clone `fox-build.yml` → swap the OrangeFox-sync steps for `repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1` + local manifest + `lunch twrp_KI7-eng` + `mka adbd bootimage` (NOT `mka recoveryimage` — see P0; the first CI run using `recoveryimage` produced an empty build graph and no image); keep the pinned 22.04, the ccache block, the disk/swap steps and the size assert; rename artifacts `twrp-3.7.1_12-<date>-KI7.img` (matching the version string the branch produces).
 
 ---
 

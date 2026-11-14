@@ -240,11 +240,23 @@ jobs:
             exit 1
           fi
 
-          echo "== mka recoveryimage (virtual A/B, recovery-as-boot) =="
+          echo "== mka adbd bootimage (virtual A/B, recovery-as-boot) =="
           # KI7 has no dedicated recovery partition (BOARD_USES_RECOVERY_AS_BOOT
-          # := true), so the recoveryimage target produces boot.img - the
-          # flow documented in manifests/fox_12.1.xml for plain TWRP.
-          mka recoveryimage
+          # := true). On this build system (TeamWin android-12.1 build/make)
+          # the recoveryimage target is deliberately EMPTY for such boards:
+          # core/Makefile leaves INSTALLED_RECOVERYIMAGE_TARGET and
+          # RECOVERY_RESOURCE_ZIP unset when BOARD_USES_RECOVERY_AS_BOOT is
+          # true, so "mka recoveryimage" degenerates into a phony target with
+          # zero dependencies -> "ninja: no work to do" -> "build completed
+          # successfully" with NOTHING compiled and no image (exactly what the
+          # 2026-11-14 run of this workflow did: 02:48 total, ccache 0/0).
+          # The image is produced by the bootimage target instead:
+          # INSTALLED_BOOTIMAGE_TARGET := BUILT_BOOTIMAGE_TARGET, built from
+          # the recovery ramdisk ("Target boot image from recovery"). adbd is
+          # requested explicitly as well - belt and braces, same incantation
+          # the OrangeFox flow for this device uses (see README.md and
+          # manifests/fox_12.1.xml).
+          mka adbd bootimage
           BUILD_RC=$?
 
           echo "== ccache after build =="
@@ -257,6 +269,19 @@ jobs:
             echo "::error::mka failed with exit code $BUILD_RC"
             exit $BUILD_RC
           fi
+
+          # Fail fast if the build produced nothing usable: a silently empty
+          # build graph must never pass as a successful build again.
+          IMG="out/target/product/KI7/boot.img"
+          IMGSIZE=0
+          [ -f "$IMG" ] && IMGSIZE=$(stat -c%s "$IMG")
+          if [ "$IMGSIZE" -lt 4194304 ]; then
+            echo "::error::no usable boot.img produced (found ${IMGSIZE} bytes)."
+            echo "If the log above says 'ninja: no work to do', the requested make target is empty:"
+            echo "recoveryimage is a NO-OP for BOARD_USES_RECOVERY_AS_BOOT boards - build 'mka adbd bootimage'."
+            exit 1
+          fi
+          echo "boot.img: $IMGSIZE bytes ($(numfmt --to=iec "$IMGSIZE"))"
 
       # Size guard. Plain TWRP with the BoardConfig trims on this branch is
       # expected to fit the stock 32 MiB boot_a WITHOUT any post-build

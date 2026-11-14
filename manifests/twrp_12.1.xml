@@ -12,9 +12,11 @@
     repo sync -c -j8   # (add the usual no-clone-bundle / no-tags flags if you like)
     source build/envsetup.sh
     lunch twrp_KI7-eng
-    mka recoveryimage    # KI7 is virtual A/B, recovery-as-boot (no dedicated
-                         # recovery partition) -> recoveryimage produces
-                         # boot.img for boot_a
+    mka adbd bootimage    # KI7 is virtual A/B, recovery-as-boot (no dedicated
+                          # recovery partition) -> the recoveryimage target is
+                          # EMPTY on such boards (build/make leaves
+                          # INSTALLED_RECOVERYIMAGE_TARGET unset); bootimage
+                          # builds boot.img FROM the recovery ramdisk
 
   Output: out/target/product/KI7/boot.img (AVB-padded to exactly 33,554,432
   bytes = the stock 32 MiB boot_a; flashable as-is).

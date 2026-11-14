@@ -32,7 +32,9 @@
     repo sync -c -j8   # (add the usual no-clone-bundle / no-tags flags if you like)
     source build/envsetup.sh
     lunch twrp_KI7-userdebug
-    mka recoveryimage
+    mka adbd bootimage    # recovery-as-boot: the recoveryimage target is
+                          # EMPTY on such boards; bootimage produces boot.img
+                          # from the recovery ramdisk
 
   CI: .github/workflows/fox-build.yml automates the OrangeFox build.
 -->
