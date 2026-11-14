@@ -142,9 +142,10 @@ BOARD_FLASH_BLOCK_SIZE := 131072 # (BOARD_KERNEL_PAGESIZE * 64)
 # stack, no NTFS-3G/tzdata/lptools/nano) keep the gzipped ramdisk well
 # under the ceiling; fastbootd STAYS IN (required - see the Fastbootd
 # section below). CI asserts the final image against 33,554,432 bytes and
-# falls back to a repack-only (--no-cut) pass of tools/slim_bootimg.py if
-# it ever grows over.
-# No 96 MiB repartition (README Option C) is needed on this branch.
+# HARD-FAILS if it ever grows over - there is no post-build slim/repack
+# tooling on this branch (that tooling is how fastbootd was lost on the
+# OrangeFox branch), so over-size fixes belong HERE, in BoardConfig.mk.
+# No 96 MiB repartition is needed on this branch.
 BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432
 BOARD_DTBOIMG_PARTITION_SIZE := 8388608
 BOARD_HAS_LARGE_FILESYSTEM := true
@@ -201,9 +202,10 @@ TARGET_USES_LOGD := true
 # the stock side is unreachable, so this ramdisk's fastbootd is the ONLY
 # route to flash super/logical partitions (system/vendor/product/system_ext).
 # Size cost is small (fastbootd engine + a few ext4/sparse libs) and the
-# plain-TWRP ramdisk has several MiB of headroom under the slimmed Fox
-# build, so it stays inside the stock 32 MiB boot_a. The CI backstop never
-# cuts ramdisk entries (repack-only) - see .github/workflows/twrp-build.yml.
+# plain-TWRP ramdisk has several MiB of headroom, so it stays inside the
+# stock 32 MiB boot_a. The CI size check hard-fails over-limit builds;
+# there is no post-build surgery on this branch - see .github/workflows/
+# twrp-build.yml and TWRP.md.
 TW_INCLUDE_FASTBOOTD := true
 
 # Tools / resetprop and magiskboot

@@ -1,11 +1,11 @@
 name: Build TWRP 12.1
 
 # Plain TWRP CI for the TECNO Spark 10 Pro (KI7) device tree (twrp-12.1
-# branch). Same verified device facts as the OrangeFox build on Fox_12.1
-# (prebuilt 4.19 kernel, recovery-as-boot, virtual A/B, FBE + Trustonic
-# keymaster 4.1) - but WITHOUT the OrangeFox layer, which is what makes
-# the image fit the stock 32 MiB boot_a without the 96 MiB repartition
-# (README Option C) the OrangeFox build needs.
+# branch - a PURE TWRP tree: the OrangeFox layer and all slim/repack
+# tooling are removed). Same verified device facts as the historical
+# OrangeFox build (prebuilt 4.19 kernel, recovery-as-boot, virtual A/B,
+# FBE + Trustonic keymaster 4.1) - plain TWRP fits the stock 32 MiB
+# boot_a with no post-build surgery and no repartition.
 #
 #  * Every push to twrp-12.1 (or a manual run) builds the recovery image
 #    and stores it as a workflow *artifact* (30 day retention).
@@ -90,7 +90,7 @@ jobs:
             zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 \
             libncurses5-dev libncursesw5-dev x11proto-core-dev libx11-dev \
             lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc fontconfig \
-            libssl-dev rsync python3 python3-pip bc lzop patch cpio ccache zopfli
+            libssl-dev rsync python3 python3-pip bc lzop patch cpio ccache
           # compat libs (present on 22.04, may vanish on newer runners)
           sudo apt-get install -y -qq libtinfo5 libncurses5 2>/dev/null \
             || echo "::warning::libtinfo5/libncurses5 unavailable - continuing"
@@ -140,59 +140,10 @@ jobs:
           rm -rf "$HOME/twrp_12.1/device/tecno/KI7/.git"
           ls -la "$HOME/twrp_12.1/device/tecno/KI7"
 
-      # Upstream regression patch carried over from the fox workflow.
-      # OrangeFox's recovery tip (6bd902d1, 2026-10-26) used AID_MEDIA_RW
-      # without including the header that defines it. TeamWin's own
-      # android-12.1 recovery is expected to be clean, and this patch is
-      # fully self-retiring: it greps for files that use the macro without
-      # the include and patches ONLY those; if nothing matches, it is a
-      # no-op that just logs "nothing to patch".
-      - name: Patch upstream AID_MEDIA_RW regression (self-retiring)
-        shell: bash {0}
-        run: |
-          set -u
-          cd "$HOME/twrp_12.1/bootable/recovery"
-
-          HDR="$(find "$HOME/twrp_12.1/system/core" \
-                 -path '*/private/android_filesystem_config.h' 2>/dev/null | head -n1)"
-          if [ -n "$HDR" ]; then
-            echo "AID header found: $HDR"
-          else
-            echo "::warning::android_filesystem_config.h not found - injecting fallback #define"
-          fi
-
-          PATCHED=0
-          while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            if grep -q 'android_filesystem_config' "$f"; then
-              echo "ok (already has include): $f"
-              continue
-            fi
-            echo "patching: $f"
-            if [ -n "$HDR" ]; then
-              sed -i '0,/^#include/ s|^#include|#include <private/android_filesystem_config.h> /* TWRP CI fix: AID_MEDIA_RW */\n&|' "$f"
-              grep -q 'android_filesystem_config' "$f" || {
-                echo "sed anchor failed on $f - prepending instead"
-                sed -i '1i #include <private/android_filesystem_config.h> /* TWRP CI fix: AID_MEDIA_RW */' "$f"
-              }
-            else
-              sed -i '0,/^#include/ s|^#include|#ifndef AID_MEDIA_RW\n#define AID_MEDIA_RW 1023\n#endif /* TWRP CI fix */\n&|' "$f"
-              grep -q '#define AID_MEDIA_RW' "$f" || {
-                echo "sed anchor failed on $f - prepending instead"
-                sed -i '1i #ifndef AID_MEDIA_RW\n#define AID_MEDIA_RW 1023\n#endif /* TWRP CI fix */' "$f"
-              }
-            fi
-            PATCHED=$((PATCHED + 1))
-          done < <(grep -rl --include='*.cpp' --include='*.hpp' --include='*.h' 'AID_MEDIA_RW' .)
-
-          echo "patched $PATCHED file(s)"
-          if [ "$PATCHED" -eq 0 ]; then
-            echo "nothing to patch (TeamWin tree already clean) - continuing"
-          else
-            echo "--- verification (first 3 hits) ---"
-            grep -rn --include='*.cpp' --include='*.hpp' --include='*.h' \
-                 -e 'android_filesystem_config' -e '#define AID_MEDIA_RW' . | head -3 || true
-          fi
+      # NOTE: the OrangeFox-era "AID_MEDIA_RW regression" patch step was
+      # removed 2026-11-14. It was self-retiring and the first twrp-12.1 CI
+      # run proved it a no-op ("nothing to patch - TeamWin tree already
+      # clean"); TeamWin's android-12.1 recovery includes the header itself.
 
       - name: Build TWRP (recovery-as-boot, virtual A/B)
         # 'bash' WITHOUT '-e' on purpose (GitHub's default is 'bash -e'):
@@ -285,23 +236,18 @@ jobs:
 
       # Size guard. Plain TWRP with the BoardConfig trims on this branch is
       # expected to fit the stock 32 MiB boot_a WITHOUT any post-build
-      # surgery (unlike OrangeFox, whose ramdisk needed the slim pipeline).
-      # The AOSP build already refuses to emit an image larger than
-      # BOARD_BOOTIMAGE_PARTITION_SIZE, so over-size is normally caught at
-      # build time; this step is the belt-and-braces backstop. If the image
-      # ever does come in over, tools/slim_bootimg.py runs in --no-cut
-      # mode: it recompresses the ramdisk (gzip -9, zopfli fallback) and
-      # repacks the image WITHOUT removing a single ramdisk entry. That is
-      # deliberate: fastbootd is a required feature on this branch and the
-      # OrangeFox cut list would silently remove it (the slimmed Fox image
-      # is exactly how fastbootd was lost the first time). If even the
-      # repack cannot fit the image, the run fails loudly - the trimming
-      # decision then belongs in BoardConfig.mk, not in CI.
-      - name: Enforce the stock 32 MiB boot_a limit (repack-only backstop)
+      # surgery. The AOSP build already refuses to emit an image larger
+      # than BOARD_BOOTIMAGE_PARTITION_SIZE, so over-size is normally
+      # caught at build time; this step is the belt-and-braces re-assert.
+      # There is NO slim/repack fallback and NO cut list on this branch, on
+      # purpose: fastbootd is a required feature (it was lost exactly
+      # through the OrangeFox slimming pipeline), so an over-size image
+      # fails the run loudly and the trimming decision belongs in
+      # BoardConfig.mk (see TWRP.md), not in CI surgery.
+      - name: Enforce the stock 32 MiB boot_a limit
         run: |
           set -euo pipefail
           OUT="$HOME/twrp_12.1/out/target/product/KI7"
-          TOOLS="$GITHUB_WORKSPACE/tools"
           IMG="$OUT/boot.img"
           [ -f "$IMG" ] || { echo "::error::no boot.img in $OUT"; exit 1; }
 
@@ -310,26 +256,14 @@ jobs:
           echo "built image: $SIZE bytes ($(numfmt --to=iec "$SIZE"))"
 
           if [ "$SIZE" -le "$LIMIT" ]; then
-            echo "fits the stock 32 MiB boot_a - no repack needed"
+            echo "fits the stock 32 MiB boot_a"
             exit 0
           fi
 
-          echo "image is over the limit - repacking in --no-cut mode (fastbootd and every other entry stay in)"
-          python3 "$TOOLS/slim_bootimg.py" "$IMG" "$IMG.slim" --no-cut
-          NEWSIZE=$(stat -c%s "$IMG.slim")
-          if [ "$NEWSIZE" -gt "$LIMIT" ] && command -v zopfli >/dev/null 2>&1; then
-            echo "gzip-9 result $NEWSIZE > $LIMIT - retrying with zopfli"
-            python3 "$TOOLS/slim_bootimg.py" "$IMG" "$IMG.slim" \
-              --no-cut --zopfli "$(command -v zopfli)"
-            NEWSIZE=$(stat -c%s "$IMG.slim")
-          fi
-          if [ "$NEWSIZE" -gt "$LIMIT" ]; then
-            echo "::error::image is still $NEWSIZE bytes after the repack-only backstop. fastbootd is required on this branch, so NO ramdisk entries were cut. Trim deliberately in BoardConfig.mk (see TWRP.md) and re-run."
-            exit 1
-          fi
-          mv "$IMG" "$IMG.full"     # keep the pre-repack image in out/ (not uploaded)
-          mv "$IMG.slim" "$IMG"
-          echo "repacked boot.img: $NEWSIZE bytes ($(numfmt --to=iec "$NEWSIZE"))"
+          echo "::error::image is $SIZE bytes - over the stock 32 MiB boot_a by $((SIZE - LIMIT)) bytes."
+          echo "There is no slim/repack tooling on this branch (deleted on purpose - it is how fastbootd got lost)."
+          echo "Trim deliberately in BoardConfig.mk (size trims are documented in TWRP.md) and re-run."
+          exit 1
 
       # Save the compiler cache even when the build FAILS - while we are
       # iterating on breakages every failed run still warms the cache for

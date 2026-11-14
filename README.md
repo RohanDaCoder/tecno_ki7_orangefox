@@ -1,61 +1,68 @@
-# OrangeFox R12.1 / TWRP 12.1 for TECNO Spark 10 Pro (KI7)
+# TWRP 12.1 for TECNO Spark 10 Pro (KI7)
 
 **Maintainer:** [RohanDaCoder](https://github.com/RohanDaCoder) (AL Zami Rohan)
 
-[![Build](https://github.com/RohanDaCoder/tecno_ki7_orangefox/actions/workflows/fox-build.yml/badge.svg?branch=Fox_12.1)](https://github.com/RohanDaCoder/tecno_ki7_orangefox/actions/workflows/fox-build.yml)
+[![Build](https://github.com/RohanDaCoder/tecno_ki7_orangefox/actions/workflows/twrp-build.yml/badge.svg?branch=twrp-12.1)](https://github.com/RohanDaCoder/tecno_ki7_orangefox/actions/workflows/twrp-build.yml)
 [![Releases](https://img.shields.io/github/v/release/RohanDaCoder/tecno_ki7_orangefox?include_prereleases&label=release)](https://github.com/RohanDaCoder/tecno_ki7_orangefox/releases)
 
-Ready-to-build OrangeFox R12.1 / TWRP 12.1 device tree for the Tecno Spark 10 Pro
-(codename **KI7**, board `CY-KI7-V7510`).
+Ready-to-build **TWRP 3.7.1_12 (unofficial)** device tree for the Tecno Spark
+10 Pro (codename **KI7**, board `CY-KI7-V7510`).
 
-Every board value in this tree was verified against a **live dump** of a rooted KI7
-(HiOS `KI7-V7510AACDGHJKLMN-T-GL-250218V5302`, Feb 2025 firmware): boot image header,
-partition table, super layout (`lpdump`), stock fstab, display, and kernel blob.
+The `twrp-12.1` branch is a **pure TWRP tree**: it started as a copy of the
+OrangeFox port in this same repo, but every OrangeFox layer, OrangeFox build
+variable and post-build slimming tool has been removed. Plain TWRP fits the
+stock 32 MiB `boot_a` partition with no post-build surgery; the OrangeFox
+ramdisk never did. The historical OrangeFox port stays on the `Fox_12.1`
+branch.
 
-Repo: <https://github.com/RohanDaCoder/tecno_ki7_orangefox> (branch `Fox_12.1`)
+Most board values were verified against a **live dump** of a rooted KI7
+(HiOS `KI7-V7510AACDGHJKLMN-T-GL-250218V5302`, Feb 2025 firmware): boot image
+header, partition table, super layout (`lpdump`), stock fstab, display, and
+the kernel blob. A device-side re-verification round is in progress — items
+marked **RE-VERIFY** below are being confirmed on the live phone and this
+table will be corrected if the measurement disagrees.
+
+Research basis: `twrp_ki7_research_report.md`. Branch-specific notes: `TWRP.md`.
 
 ## Automated builds (GitHub Actions)
 
-The repo ships CI (`.github/workflows/fox-build.yml`) that builds OrangeFox R12.1
-for the KI7 on every push - no local setup needed:
+`.github/workflows/twrp-build.yml` builds TWRP on every push to `twrp-12.1`
+(no local setup needed):
 
-- **Normal commits** (push to `Fox_12.1` / `main`, or a manual *Run workflow*):
-  the recovery image is built and stored as a **workflow artifact**
+- **Normal commits**: the recovery image is stored as a **workflow artifact**
   (repo → *Actions* → the run → *Artifacts*, kept for 30 days).
-- **Releases:** push a tag that starts with `v` and CI cuts a full **GitHub
+- **Releases**: push a tag that starts with `v` and CI cuts a full **GitHub
   Release** with the image, its md5 and a bundle zip:
 
   ```bash
-  git tag v1.0
-  git push origin v1.0
+  git tag v1.0-twrp
+  git push origin v1.0-twrp
   ```
 
-The build uses the official OrangeFox sync script (minimal TWRP 12.1 manifest +
-OrangeFox build system), pinned to `ubuntu-22.04`, then **slims the image to fit
-the stock 32 MiB `boot_a`** (see below) and hard-fails if it doesn't. Expect
-~25-30 min per build on the free public-repo runners (ccache-warmed).
+Expect ~1.5-3 h per cold build on the free public-repo runners
+(ccache-warmed rebuilds are much faster).
 
 ## Device
 
 Basic | Spec Sheet
 -----:|:------------------------
-SoC | MediaTek Helio G88 (MT6769H, platform `mt6768`)
+SoC | MediaTek Helio G88 (MT6769H, platform `mt6768`) — RE-VERIFY via SoC props
 CPU | 2x Cortex-A75 @2.0GHz + 6x Cortex-A55 (armv8.2)
 GPU | Mali-G52 MC2
-Kernel | 4.19.191 (stock, prebuilt - included in `prebuilt/`)
+Kernel | 4.19.191 (stock, prebuilt - included in `prebuilt/`) — RE-VERIFY via `uname`
 OS | Android 13 system / Android 12 vendor (TSSI)
 Display | 6.8" 1080x2460 @ density 480, max backlight 3750
 Battery | 5000 mAh
 Slots | A/B, **Virtual A/B + compression** (`ro.virtual_ab.enabled=true`)
-Crypto | **FBE** + metadata encryption (keydirectory on `md_udc`), Trustonic TEE
+Crypto | **FBE** + metadata encryption (keydirectory on `md_udc`), Trustonic TEE — RE-VERIFY
 Boot image | header **v2**, board name `CY-KI7-V7510`, page 2048, base 0x40078000, ramdisk 0x07c08000, tags 0x0bc08000, dtb 0x0bc08000
 
-### Partition layout (verified with `lpdump` / `/proc/partitions`)
+### Partition layout (from `lpdump` / `/proc/partitions` — re-verification in progress)
 
 Partition | Size | Notes
 ---:|---:|---
-boot_a | 33,554,432 (32 MiB) | **recovery-as-boot**, active slot: kernel + dual-purpose ramdisk (normal init + `system/bin/recovery`)
-boot_b | 8,388,608 (8 MiB) | **too small for any A12.1 recovery image** - asymmetric Transsion GPT; never flash recovery here
+boot_a | 33,554,432 (32 MiB) | **recovery-as-boot**, flash target: kernel + dual-purpose ramdisk (normal init + `system/bin/recovery`)
+boot_b | **RE-VERIFY: 8 MiB (GPT dump) vs 32 MiB (live report)** | whatever the truth: never flash recovery here without measuring again first
 vendor_boot_a | 67,108,864 (64 MiB) | **unused** (boot header v2) - merge candidate for repartition
 vendor_boot_b | 8,388,608 (8 MiB) | **unused** (boot header v2)
 init_boot_a / _b | 8,388,608 (8 MiB) | **unused** (boot header v2)
@@ -65,32 +72,33 @@ userdata | f2fs, FBE | `fileencryption=aes-256-xts:aes-256-cts:v2`, keydirectory
 metadata | `md_udc` | FBE metadata/keydirectory
 preloader | `mmcblk0boot0/1` | 4 MiB each
 
-There is **no dedicated recovery partition**. The stock `boot.img` ramdisk contains
-both the normal boot init and the HiOS recovery binary (`system/bin/recovery`,
-`system/etc/recovery.fstab`, `system/lib64/librecovery_ui.so`). The bootloader picks
-recovery vs normal via `androidboot.force_normal_boot`.
+There is **no dedicated recovery partition** — RE-VERIFY (by-name listing +
+boot ramdisk unpack). The stock `boot.img` ramdisk contains both the normal
+boot init and the HiOS recovery binary (`system/bin/recovery`,
+`system/etc/recovery.fstab`, `system/lib64/librecovery_ui.so`). The bootloader
+picks recovery vs normal via `androidboot.force_normal_boot`.
 
 ## Tree layout
 
 ```
 tecno_ki7_orangefox/   # clone as device/tecno/KI7
-├── .github/workflows/fox-build.yml                    # CI: artifacts on push, release on v* tags
-├── manifests/fox_12.1.xml                            # local_manifest for repo sync
-├── AndroidProducts.mk / twrp_KI7.mk / Android.mk      # lunch: twrp_KI7-userdebug
-├── BoardConfig.mk                                     # all verified KI7 values
-├── device.mk                                          # Virtual A/B, bootctrl, TEE relinks
-├── system.prop / vendorsetup.sh                       # OrangeFox env vars (OF_SCREEN_H=2460)
-├── prebuilt/                                          # kernel (gzip Image), dtb, dtbo.img
-│                                                      #   from the live dump - byte-identical
-│                                                      #   to the twrpdtgen A12 firmware dump
+├── .github/workflows/twrp-build.yml                # CI: artifacts on push, release on v* tags
+├── manifests/twrp_12.1.xml                          # local_manifest for repo sync
+├── AndroidProducts.mk / twrp_KI7.mk / Android.mk   # lunch: twrp_KI7-userdebug
+├── BoardConfig.mk                                   # all verified KI7 values
+├── device.mk                                        # Virtual A/B, bootctrl, TEE relinks, fastbootd
+├── system.prop                                      # recovery props (crypto/TEE/USB)
+├── prebuilt/                                         # kernel (gzip Image), dtb, dtbo.img
+│                                                    #   from the live dump - byte-identical
+│                                                    #   to the twrpdtgen A12 firmware dump
 ├── recovery/root/
-│   ├── first_stage_ramdisk/fstab.mt6768               # stock KI7 first-stage fstab
-│   ├── init.recovery.mt6768.rc                        # MTK init + Trustonic TEE services
+│   ├── first_stage_ramdisk/fstab.mt6768             # stock KI7 first-stage fstab
+│   ├── init.recovery.mt6768.rc                      # MTK init + Trustonic TEE services
 │   ├── init.recovery.tee.rc / init.recovery.trustonic.rc
 │   ├── init.recovery.usb.rc / ueventd.mt6768.rc
-│   ├── system/etc/recovery.fstab + twrp.flags         # KI7 by-name verified
-│   ├── system/lib64/                                  # keymaster/gatekeeper relink libs
-│   └── vendor/                                        # full Trustonic TEE userspace
+│   ├── system/etc/recovery.fstab + twrp.flags       # KI7 by-name verified
+│   ├── system/lib64/                                # keymaster/gatekeeper relink libs
+│   └── vendor/                                      # full Trustonic TEE userspace
 │       ├── bin/          (mcDriverDaemon, keymaster@4.1-service.trustonic, ...)
 │       ├── app/mcRegistry/  (trustlets .drbin/.tlbin/.tabin)
 │       ├── lib64/ + lib64/hw/  (keymaster, gatekeeper, hwcomposer.mt6768)
@@ -99,7 +107,8 @@ tecno_ki7_orangefox/   # clone as device/tecno/KI7
 ├── mtk_plpath_utils/     # preloader raw-link helper (source)
 ├── avb/boot_pubkey.pem   # Transsion MT6768 AVB key (from the KH7n tree)
 ├── sepolicy/recovery/    # recovery.te allow rules
-└── tools/vendor_refresh.sh  # pull YOUR /vendor TEE blobs from the live phone
+├── tools/vendor_refresh.sh  # pull YOUR /vendor TEE blobs from the live phone
+└── twrp_ki7_research_report.md  # the research that picked this base
 ```
 
 `recovery/root/vendor` is taken from the KH7n (Spark 9 Pro) tree - same platform,
@@ -111,8 +120,6 @@ phone and drop your own blobs in (see below).
 Requirements: Linux x86_64 (Ubuntu 20.04/22.04), 16 GB+ RAM, ~250 GB disk,
 standard Android build prerequisites (`repo`, `git`, build-essential, etc.).
 
-### TWRP (recommended first build - fits the stock 32 MiB boot)
-
 ```bash
 mkdir ~/twrp && cd ~/twrp
 repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
@@ -120,89 +127,48 @@ repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aos
 # pull in the KI7 device tree:
 mkdir -p .repo/local_manifests
 curl -o .repo/local_manifests/tecno_ki7.xml \
-  https://raw.githubusercontent.com/RohanDaCoder/tecno_ki7_orangefox/Fox_12.1/manifests/fox_12.1.xml
+  https://raw.githubusercontent.com/RohanDaCoder/tecno_ki7_orangefox/twrp-12.1/manifests/twrp_12.1.xml
 
 repo sync -c --no-clone-bundle --no-tags -j8
 
 source build/envsetup.sh
 lunch twrp_KI7-userdebug
-mka adbd bootimage -j$(nproc)   # NOT recoveryimage: on recovery-as-boot boards
-                                # (BOARD_USES_RECOVERY_AS_BOOT := true) that
-                                # target is empty - a silent no-op with no image
+mka adbd bootimage -j$(nproc)
 ```
 
-Output: `out/target/product/KI7/boot.img` (this IS the recovery image - recovery-as-boot).
-
-### OrangeFox R12.1
-
-OrangeFox no longer publishes a standalone `fox_12.1` manifest - the official
-method is their sync script, which patches a minimal TWRP 12.1 AOSP manifest
-and layers the OrangeFox build system on top:
-
-```bash
-mkdir ~/OrangeFox_sync && cd ~/OrangeFox_sync
-git clone https://gitlab.com/OrangeFox/sync.git
-cd sync
-./orangefox_sync.sh --branch 12.1 --path ~/fox_12.1
-
-git clone https://github.com/RohanDaCoder/tecno_ki7_orangefox.git \
-    -b Fox_12.1 ~/fox_12.1/device/tecno/KI7
-
-cd ~/fox_12.1
-export LC_ALL=C
-export ALLOW_MISSING_DEPENDENCIES=true
-source build/envsetup.sh
-source device/tecno/KI7/vendorsetup.sh KI7
-lunch twrp_KI7-eng
-mka adbd bootimage
-```
-
-`mka adbd bootimage` (not `recoveryimage`) because the KI7 is a **virtual A/B,
-recovery-as-boot** device with no dedicated recovery partition - per the
-[OrangeFox wiki](https://wiki.orangefox.tech/dev/building).
-
-Output: `out/target/product/KI7/OrangeFox-*.img` (or `boot.img`) - this IS the
-recovery image; flash it to `boot_a`.
-
-`vendorsetup.sh` (FOX_*/OF_* env vars, incl. `OF_MAINTAINER=RohanDaCoder`)
-must be sourced **manually** before `lunch`, as shown above.
+**`mka adbd bootimage`, NOT `mka recoveryimage`.** KI7 is recovery-as-boot
+(`BOARD_USES_RECOVERY_AS_BOOT := true`), and on this build system (TeamWin
+android-12.1 `build/make`) the `recoveryimage` target is deliberately empty
+for such boards — building it yields `ninja: no work to do`, a "successful"
+build with zero compilations and no image. The `bootimage` target produces
+`out/target/product/KI7/boot.img` from the recovery ramdisk (AVB-padded to
+exactly 33,554,432 bytes = the stock 32 MiB boot_a; flashable as-is).
 
 Or just let [GitHub Actions](#automated-builds-github-actions) build it.
 
-### The 32 MiB boot problem - SOLVED by CI slimming (READ THIS)
+### The 32 MiB boot_a limit (READ THIS)
 
-The stock `boot` partition is only **32 MiB**. A full OrangeFox R12.1 ramdisk is
-~88 MiB uncompressed (~35.5 MiB gzipped) - it does not fit, and the stock kernel
-cannot help: it only decompresses **gzip/lz4/lzo** initramfs (no xz/zstd - verified
-by extracting kallsyms from the prebuilt kernel), so the only levers are content
-cuts and max deflate.
+The stock `boot` partition is only **32 MiB**. Plain TWRP with the
+BoardConfig size trims fits it:
 
-CI solves it with a post-build step (`tools/slim_bootimg.py`) that surgically
-prunes the ramdisk cpio - every retained file keeps its original bytes, uid/gid
-and mode - regenerates OrangeFox's `ramdisk-files.txt` / `ramdisk-files.sha256sum`
-integrity manifests, replaces `libandroidicu.so` with a freestanding stub
-(`tools/icu_stub.c`) so 4.3 MiB of ICU can be dropped, and repacks with gzip -9.
-The result lands around **31.2 MiB** (limit 33,484,800 bytes). `BOARD_BOOTIMAGE_PARTITION_SIZE`
-stays at 96 MiB only so the *pre-slim* image passes the build's own size assert;
-the shipped artifact is the slim image and **flashes to the stock 32 MiB `boot_a`
-with no repartitioning**.
+- single language / no CJK font stack (`TW_EXTRA_LANGUAGES := false`)
+- no NTFS-3G (exFAT/FAT stay, via FUSE)
+- no tzdata / lptools / lpdump / nano
+- everything decryption- and flashing-related **stays in**
 
-**Kept** (this is still a full-featured recovery): FBE decryption stack (keystore2 +
-sqlite + keymaster/gatekeeper + the whole Trustonic TEE), `magiskboot` + the
-OrangeFox AVB / dm-verity / FRP tools that use it, adb + sideload (minadbd),
-bash (`/sbin/sh`), toybox, exFAT + FAT tools (external SD), logd, all FFiles tools,
-pigz, en / bn_BD / hi_IN languages, InterDisplay + Roboto fonts.
+**fastbootd is deliberately kept in** (`TW_INCLUDE_FASTBOOTD := true` — see
+TWRP.md): while this recovery occupies `boot_a`, its fastbootd is the only
+route to flash the `super` logical partitions.
 
-**Removed** (verified unreferenced or acceptable losses): CJK font + 29 languages,
-nano + terminfo + gnused/gnutar (terminal editor stack), fastbootd, `update_engine_sideload`
-(payload.bin sideload), MTP lib, NTFS stack, vibrator HALs, ASAN linker + UBSAN
-runtime, hwcomposer + libxml2 (never loaded), the MediaTek pay-trigger factory
-stack, AOSP fallback UI images, ICU (stubbed), assorted orphan libs.
-The bash terminal still works; the nano editor inside it is gone.
+There is **NO post-build slim/repack tooling on this branch** — the old
+OrangeFox slimming pipeline (`tools/slim_bootimg.py`) is exactly how
+fastbootd was lost the first time, and it has been deleted. CI hard-fails
+if the image ever exceeds 33,554,432 bytes; the trimming decision then
+belongs in `BoardConfig.mk`, not in CI surgery.
 
-For the full audit trail of every cut - and why each is safe (ELF dependency
-graph, rc-file services, OrangeFox script references) - read the header of
-`tools/slim_bootimg.py`.
+The stock kernel only decompresses **gzip/lz4/lzo** initramfs (no xz/zstd -
+verified by extracting kallsyms from the prebuilt kernel), so the build
+stays with the default gzip ramdisk.
 
 ## Flashing
 
@@ -215,40 +181,27 @@ adb pull /sdcard/stock_boot_a.img   # keep this forever
 
 Your rescue options if anything goes wrong: `mtkclient` (Helio G88 bootrom is
 exploitable - can flash any partition via BROM mode), SP Flash Tool with the stock
-ROM from needrom.com, or fastboot. You also already hold a full safety net from the
-dump session - `boot.img`, `dtbo.img`, `vbmeta*.img` and `ins_preloader.img` -
-keep them somewhere safe.
+ROM from needrom.com, or fastboot. Keep the dumped `boot.img`, `dtbo.img`,
+`vbmeta*.img` and `ins_preloader.img` somewhere safe.
 
 ### How recovery works on KI7 (read this - it is NOT the usual slot dance)
 
-A TWRP/OrangeFox `boot.img` contains a recovery-only ramdisk. The stock boot
-image is dual-purpose (normal boot + recovery); a custom recovery image is not:
-flash it to the active slot and every boot lands in recovery until you reflash
+A TWRP `boot.img` contains a recovery-only ramdisk. The stock boot image is
+dual-purpose (normal boot + recovery); a custom recovery image is not: flash
+it to the active slot and every boot lands in recovery until you reflash
 stock.
 
-**KI7's slots are asymmetric** (verified on this device from the GPT):
+**boot_b size is currently under re-verification** (GPT dump said 8 MiB; a
+live check reported 32 MiB). Until that is settled, treat the classic "put
+TWRP on the inactive slot" trick as unavailable - flash TWRP to `boot_a`
+when you need it, reflash the stock boot image afterwards. Your active slot
+is `_a` (check: `getprop ro.boot.slot_suffix`) - re-check after every OTA,
+because an OTA that flips the active slot changes the whole picture.
 
-| partition | size | what it means |
-|---|---|---|
-| `boot_a` (active) | 32 MiB | the only slot big enough - flash the recovery here |
-| `boot_b` | 8 MiB | **a TWRP/OrangeFox image does NOT fit** - never flash recovery here |
+### Option A - flash TWRP to boot_a (the default)
 
-So the classic "put TWRP on the inactive slot" trick is impossible on KI7.
-The workflow is: flash TWRP to `boot_a` when you need it, reflash the stock
-boot image afterwards. Your active slot is `_a` (check:
-`getprop ro.boot.slot_suffix`) - re-check after every OTA, because an OTA that
-flips the active slot to `b` changes the whole picture.
-
-### Option A - flash TWRP to boot_a (the only real option)
-
-Keep a copy of the stock boot image around - forever:
-
-```bash
-adb shell su -c "dd if=/dev/block/by-name/boot_a of=/sdcard/stock_boot_a.img"
-adb pull /sdcard/stock_boot_a.img
-```
-
-Flash TWRP:
+Keep a copy of the stock boot image around - forever (see the safety net
+above). Flash TWRP:
 
 ```bash
 adb push out/target/product/KI7/boot.img /sdcard/twrp.img
@@ -283,31 +236,24 @@ fastboot boot out/target/product/KI7/boot.img    # TRY this first - often blocke
 
 If `fastboot boot` is blocked (common on Tecno), fall back to Option A.
 
-### Option C - repartition boot to 96 MiB (NOT NEEDED ANYMORE)
+### fastbootd (logical partitions)
 
-Historical option, kept for reference: merging the unused `vendor_boot_a` (64 MiB)
-into `boot_a` for a 96 MiB boot partition. Since CI now slims the image into the
-stock 32 MiB `boot_a`, repartitioning is unnecessary for OrangeFox. Links and the
-original approach:
+With this recovery in `boot_a`, `adb reboot fastbootd` boots the same ramdisk
+into fastbootd - the only route to flash `super` logical partitions
+(system / vendor / product / system_ext) while the recovery occupies `boot_a`:
 
-https://github.com/tecno-mt6768/Universal-Boot-Repartitioner-GPT-Backup
-https://github.com/tecno-mt6768/Re-partitioning-kh7n
-
-Requirements: kernel 4.1x (KI7 = 4.19 OK), `vendor_boot` empty/unused (true on KI7 -
-header v2 boot), `boot` and `vendor_boot` adjacent (true: p30/p31 and p44/p45).
-The tool merges them (32 + 64 = 96 MiB), backs up the original GPT to a restore zip
-(you need an SD card for it), and flashes the new boot.img.
-
-After repartitioning set `BOARD_BOOTIMAGE_PARTITION_SIZE := 100663296` and rebuild.
-**Only do this after you have TWRP working and a GPT backup.** A botched GPT edit =
-hard brick (recoverable only via BROM/mtkclient or SP Flash Tool).
+```
+fastboot flash system system.img      # logical partitions via fastbootd
+fastboot reboot                        # back to recovery (recovery-as-boot)
+```
 
 ### If you flashed TWRP to boot_b by accident
 
-Not catastrophic: `boot_b` is inactive and only 8 MiB, so the image was truncated
-there and slot B is not bootable this way anyway. Do not switch the active slot to
-`b` afterwards, and re-check `ro.boot.slot_suffix` before the next OTA. A future
-OTA (or mtkclient) can rewrite `boot_b` properly.
+If boot_b really is 8 MiB, the image was truncated there and slot B is not
+bootable this way - do not switch the active slot to `b` afterwards, and
+re-check `ro.boot.slot_suffix` before the next OTA. A future OTA (or
+mtkclient) can rewrite `boot_b` properly. (If boot_b turns out to be a full
+32 MiB after re-verification, this section will be updated.)
 
 ## Refreshing the TEE blobs (decryption)
 
@@ -331,6 +277,8 @@ without decryption.
 
 ## Known limitations / notes
 
+- English-only UI; no NTFS (exFAT/FAT still work via FUSE for external SDs);
+  no OrangeFox features (themes, Fox addons) — this is plain TWRP.
 - **`fastboot boot`** is usually blocked by the Transsion bootloader - expect
   `FAILED (remote: unknown command)`; use the slot method.
 - **Orange state warning** (unlocked bootloader) on every boot is cosmetic.
@@ -352,4 +300,4 @@ without decryption.
   Transsion MT6768 recovery approach. https://github.com/tecno-mt6768
 - **SebaUbuntu** - twrpdtgen and the generated TECNO-KI7 tree.
 - **skkk** - the first unofficial TWRP for the Spark 10 Pro (XDA).
-- TWRP / OrangeFox teams.
+- TWRP team.

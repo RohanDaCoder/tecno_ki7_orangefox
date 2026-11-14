@@ -18,7 +18,7 @@ Research basis for the branch decision: `twrp_ki7_research_report.md`.
 | `TW_INCLUDE_NTFS_3G` | true | false |
 | `TW_INCLUDE_FASTBOOTD` | true | **true (kept — restored 2026-11-14)** |
 | `TW_EXCLUDE_TZDATA/LPTOOLS/LPDUMP/NANO` | false | true |
-| Post-build slim | mandatory (`tools/slim_bootimg.py` cut mode) | backstop only, **repack-only** (`--no-cut`) if the image is ever over 32 MiB |
+| Post-build slim | mandatory (`tools/slim_bootimg.py` cut mode) | **none — slim tooling deleted; CI hard-fails if over 32 MiB** |
 
 Everything else — the crypto set (`TW_INCLUDE_CRYPTO*`, metadata partition,
 Trustonic TEE relinks), fstab, boot header values, AVB, anti-rollback hack,
@@ -33,7 +33,7 @@ prebuilt kernel/dtb — is carried over unchanged.
 3. `lunch twrp_KI7-eng && mka adbd bootimage` (recovery-as-boot: the
    `recoveryimage` target is empty on such boards — building it is a no-op
    that yields "ninja: no work to do" and no image)
-4. assert the image fits the stock 32 MiB `boot_a` (slim backstop if not)
+4. hard-fail if the image does not fit the stock 32 MiB `boot_a` (no slim/repack tooling — it is deleted on this branch)
 5. artifact `TWRP-KI7-r<run>-<ref>` containing `twrp-<version>-<date>-KI7.img`
 
 Pushing a `v*` tag publishes a GitHub Release.
@@ -56,9 +56,11 @@ fastboot flash system system.img      # logical partitions via fastbootd
 fastboot reboot                        # back to recovery (recovery-as-boot)
 ```
 
-The CI size backstop therefore never cuts ramdisk entries
-(`tools/slim_bootimg.py --no-cut`): losing fastbootd is exactly how the
-slimmed OrangeFox build ended up without it.
+There is therefore NO post-build slim/repack tooling on this branch —
+`tools/slim_bootimg.py` (and the ICU stub) were deleted outright: losing
+fastbootd is exactly how the slimmed OrangeFox build ended up without it,
+so there is no post-build surgery at all. CI hard-fails if the image
+ever exceeds the stock 32 MiB `boot_a`.
 
 ## Build (local)
 
@@ -97,7 +99,7 @@ partition:
 - `fastboot boot` is blocked by the Transsion bootloader;
 - OTAs overwrite `boot_a` — re-check the active slot after every OTA.
 
-See README.md (Fox_12.1 branch) for the full flashing guide.
+See README.md (this branch) for the full flashing guide.
 
 ## Known limitations of this branch
 
