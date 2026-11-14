@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Local manifest for the TECNO Spark 10 Pro (KI7) TWRP device tree
+  (twrp-12.1 branch).
+  Maintainer: RohanDaCoder <https://github.com/RohanDaCoder>
+
+  Plain TWRP 12.1 (minimal AOSP manifest - this file is the local manifest):
+
+    repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
+    mkdir -p .repo/local_manifests
+    cp manifests/twrp_12.1.xml .repo/local_manifests/tecno_ki7.xml
+    repo sync -c -j8   # (add the usual no-clone-bundle / no-tags flags if you like)
+    source build/envsetup.sh
+    lunch twrp_KI7-eng
+    mka recoveryimage    # KI7 is virtual A/B, recovery-as-boot (no dedicated
+                         # recovery partition) -> recoveryimage produces
+                         # boot.img for boot_a
+
+  Output: out/target/product/KI7/boot.img (AVB-padded to exactly 33,554,432
+  bytes = the stock 32 MiB boot_a; flashable as-is).
+
+  fastbootd is INCLUDED on this branch (TW_INCLUDE_FASTBOOTD := true +
+  PRODUCT_PACKAGES fastbootd): `adb reboot fastbootd` boots this same
+  boot_a ramdisk into fastbootd, exactly like the stock image. While this
+  recovery occupies boot_a it is the only route to flash super/logical
+  partitions. See TWRP.md.
+
+  CI: .github/workflows/twrp-build.yml automates the same build on every
+  push to twrp-12.1.
+-->
+<manifest>
+    <remote name="github" fetch="https://github.com" />
+
+    <project path="device/tecno/KI7"
+             name="RohanDaCoder/tecno_ki7_orangefox"
+             remote="github"
+             revision="twrp-12.1" />
+</manifest>

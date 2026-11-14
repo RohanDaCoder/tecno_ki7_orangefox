@@ -103,7 +103,18 @@ CUTS (grouped, with the evidence):
 
 Usage:
   slim_bootimg.py IN_IMG OUT_IMG [--icu-stub STUB_SO] [--zopfli BIN] \
-      [--zopfli-iterations N] [--report-only] [--save-cpio PATH] [--no-tier2]
+      [--zopfli-iterations N] [--report-only] [--save-cpio PATH] [--no-tier2] \
+      [--no-cut]
+
+--no-cut mode (the twrp-12.1 branch CI backstop): NOTHING is removed or
+rewritten - every cpio entry is re-emitted byte-identical (raw slices), the
+Fox ramdisk manifests stay untouched, and only the ramdisk compression
+(gzip -9, zopfli fallback) plus the boot image header are regenerated.
+Reason: fastbootd is a hard requirement on the twrp-12.1 branch - `adb
+reboot fastbootd` must boot this ramdisk into fastbootd, and while the
+recovery occupies boot_a it is the only route to flash super/logical
+partitions. The cut lists of the OrangeFox build would silently remove
+system/bin/fastbootd and its HAL, so that mode must never run there.
 """
 import argparse
 import gzip
@@ -141,9 +152,13 @@ PAYTRIGGER_FILES = [
 GNU_TOOLS = ['sbin/gnused', 'sbin/gnutar']
 
 # Tier 2 - OrangeFox niceties (explicitly approved: "no generic stuff"):
+# NOTE (twrp-12.1 branch, 2026-11-14): 'system/bin/fastbootd' was REMOVED
+# from this cut list - fastbootd is a hard requirement here (adb reboot
+# fastbootd must work from this ramdisk; it is the only route to flash
+# super/logical partitions while the recovery occupies boot_a). Re-adding
+# it would silently break that; the CI backstop also runs --no-cut.
 TIER2_FILES = [
     'system/bin/update_engine_sideload',   # A/B payload sideload path
-    'system/bin/fastbootd',                # fastbootd daemon
     'system/bin/zip', 'sbin/zip',          # zip CLI (installer uses libziparchive)
     'system/bin/avbctl',
 ]
@@ -166,6 +181,10 @@ TIER2_TREES = []
 #  - system/bin/snapuserd + system/bin/e2fsck: dead duplicates - init's
 #    switch_root() moves first_stage_ramdisk/* over /, so the first_stage
 #    copies replace these files at boot.
+# NOTE (twrp-12.1 branch): android.hardware.fastboot@1.1.so (fastbootd's
+# HAL) was REMOVED from this list on 2026-11-14 - fastbootd is required on
+# this branch, and its HAL must not be orphan-swept. On a plain TWRP image
+# the entry is typically absent anyway, making this a no-op either way.
 EXTRA_CUTS = [
     'vendor/lib64/hw/hwcomposer.mt6768.so',
     'system/lib64/libxml2.so',
@@ -192,7 +211,6 @@ EXTRA_CUTS = [
     'system/lib64/android.hardware.vibrator-V1-ndk_platform.so',
     'system/lib64/android.hardware.vibrator-V2-ndk.so',
     'system/lib64/android.hardware.vibrator-V2-ndk_platform.so',
-    'system/lib64/android.hardware.fastboot@1.1.so',  # fastbootd's HAL
     'system/lib64/libdmabufheap.so',
     'system/bin/lptools',
     'system/lib64/libservices.so', 'system/lib64/libcppbor.so',
@@ -461,7 +479,12 @@ def main():
     ap.add_argument('out')
     ap.add_argument('--report-only', action='store_true')
     ap.add_argument('--no-tier2', action='store_true',
-                    help='keep update_engine_sideload/fastbootd/magiskboot/theme fonts')
+                    help='keep update_engine_sideload/zip CLIs/theme fonts')
+    ap.add_argument('--no-cut', action='store_true',
+                    help='NO-CUT mode: keep every ramdisk entry byte-identical; '
+                         'only recompress (gzip-9/zopfli) and repack the image. '
+                         'Used as the size backstop on the twrp-12.1 branch so '
+                         'fastbootd can never be cut.')
     ap.add_argument('--icu-stub', metavar='STUB_SO',
                     help='replace libandroidicu.so with the stub and drop ICU')
     ap.add_argument('--zopfli', metavar='BIN',
@@ -489,13 +512,17 @@ def main():
         entries = entries[:-1]
     print(f'entries    : {len(entries)}')
 
-    cut_set = build_cut_set(tier2=not args.no_tier2)
-    kept, removed = [], []
-    for e in entries:
-        if is_cut(e.name, cut_set):
-            removed.append(e)
-        else:
-            kept.append(e)
+    cut_set = build_cut_set(tier2=not args.no_tier2) if not args.no_cut else set()
+    if args.no_cut:
+        kept, removed = list(entries), []
+        print('mode       : NO-CUT (all entries preserved, compression only)')
+    else:
+        kept, removed = [], []
+        for e in entries:
+            if is_cut(e.name, cut_set):
+                removed.append(e)
+            else:
+                kept.append(e)
 
     removed_bytes = sum(e.fsize for e in removed if not e.is_dir)
     print(f'cut        : {len(removed)} entries, {removed_bytes/1048576:.2f} MiB payload')
@@ -503,29 +530,38 @@ def main():
         if not e.is_dir:
             print(f'   {e.fsize/1024:8.0f} KiB  {e.name}')
 
-    # drop now-empty dirs (terminfo/, res/images/, FFiles/nano trees)
-    dir_names = {e.name for e in kept if e.is_dir}
-    child_prefixes = set()
-    for e in kept:
-        if not e.is_dir:
-            parts = e.name.split('/')
-            for i in range(1, len(parts)):
-                child_prefixes.add('/'.join(parts[:i]))
-    kept2 = [e for e in kept if not (e.is_dir and e.name not in child_prefixes
-                                     and e.name != '.')]
-    if len(kept2) != len(kept):
-        print(f'dropped {len(kept)-len(kept2)} emptied dirs')
+    # drop now-empty dirs (terminfo/, res/images/, FFiles/nano trees) -
+    # only in cut mode; in --no-cut mode every original dir must survive
+    if args.no_cut:
+        kept2 = kept
+    else:
+        dir_names = {e.name for e in kept if e.is_dir}
+        child_prefixes = set()
+        for e in kept:
+            if not e.is_dir:
+                parts = e.name.split('/')
+                for i in range(1, len(parts)):
+                    child_prefixes.add('/'.join(parts[:i]))
+        kept2 = [e for e in kept if not (e.is_dir and e.name not in child_prefixes
+                                         and e.name != '.')]
+        if len(kept2) != len(kept):
+            print(f'dropped {len(kept)-len(kept2)} emptied dirs')
 
     # ICU stub swap FIRST so the metadata manifests reflect the final set
-    if args.icu_stub:
+    # (never in --no-cut mode: that mode must not modify any entry)
+    if args.icu_stub and not args.no_cut:
         stub = open(args.icu_stub, 'rb').read()
         replace_entry(kept2, ICU_STUB_REPLACE, stub, 0o100644)
         kept2 = [e for e in kept2 if e is None or e.name not in ICU_STUB_DROP]
         print(f'icu stub  : {ICU_STUB_REPLACE} <- {len(stub)} bytes, '
               f'dropped {ICU_STUB_DROP}')
 
-    # regenerate OrangeFox's ramdisk integrity manifests
-    gen_metadata(kept2)
+    # regenerate OrangeFox's ramdisk integrity manifests - only when
+    # entries were cut. In --no-cut mode nothing changed (and a plain TWRP
+    # ramdisk has no ramdisk-files.txt at all; injecting one would modify
+    # the image), so the manifests stay exactly as built.
+    if not args.no_cut:
+        gen_metadata(kept2)
 
     new_cpio = rebuild_cpio(kept2)
     if args.save_cpio:

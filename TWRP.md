@@ -15,9 +15,10 @@ Research basis for the branch decision: `twrp_ki7_research_report.md`.
 | Manifest | OrangeFox sync (minimal twrp-12.1 + Fox layer) | minimal-manifest-twrp `twrp-12.1` directly |
 | `BOARD_BOOTIMAGE_PARTITION_SIZE` | 100663296 (96 MiB repartition, README Option C) | **33554432 (stock 32 MiB boot_a)** |
 | `TW_EXTRA_LANGUAGES` | true (CJK font stack, 29 languages) | false (en_US only) |
-| `TW_INCLUDE_NTFS_3G` / `TW_INCLUDE_FASTBOOTD` | true | false |
+| `TW_INCLUDE_NTFS_3G` | true | false |
+| `TW_INCLUDE_FASTBOOTD` | true | **true (kept — restored 2026-11-14)** |
 | `TW_EXCLUDE_TZDATA/LPTOOLS/LPDUMP/NANO` | false | true |
-| Post-build slim | mandatory (`tools/slim_bootimg.py`) | backstop only (runs if image ever exceeds 32 MiB) |
+| Post-build slim | mandatory (`tools/slim_bootimg.py` cut mode) | backstop only, **repack-only** (`--no-cut`) if the image is ever over 32 MiB |
 
 Everything else — the crypto set (`TW_INCLUDE_CRYPTO*`, metadata partition,
 Trustonic TEE relinks), fstab, boot header values, AVB, anti-rollback hack,
@@ -35,12 +36,34 @@ prebuilt kernel/dtb — is carried over unchanged.
 
 Pushing a `v*` tag publishes a GitHub Release.
 
+## Fastbootd
+
+**Included on this branch** (`TW_INCLUDE_FASTBOOTD := true` in BoardConfig.mk
+plus `fastbootd` + the mock fastboot HAL in `device.mk` PRODUCT_PACKAGES;
+restored 2026-11-14 after the first port draft cut it for size).
+
+`adb reboot fastbootd` — from HiOS with the stock boot image, or from inside
+this recovery — reboots into this same `boot_a` ramdisk in fastbootd mode,
+exactly like the stock image does (verified on the live device). While this
+recovery occupies `boot_a` the stock side is unreachable, so this ramdisk's
+fastbootd is **the only route to flash `super` logical partitions**
+(system / vendor / product / system_ext):
+
+```
+fastboot flash system system.img      # logical partitions via fastbootd
+fastboot reboot                        # back to recovery (recovery-as-boot)
+```
+
+The CI size backstop therefore never cuts ramdisk entries
+(`tools/slim_bootimg.py --no-cut`): losing fastbootd is exactly how the
+slimmed OrangeFox build ended up without it.
+
 ## Build (local)
 
 ```
 repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
 mkdir -p .repo/local_manifests
-cp manifests/fox_12.1.xml .repo/local_manifests/tecno_ki7.xml
+cp manifests/twrp_12.1.xml .repo/local_manifests/tecno_ki7.xml
 repo sync -c --no-clone-bundle --no-tags -j8
 source build/envsetup.sh
 lunch twrp_KI7-userdebug
@@ -66,8 +89,6 @@ See README.md (Fox_12.1 branch) for the full flashing guide.
 
 ## Known limitations of this branch
 
-- no fastbootd inside recovery (excluded for size) — flash `super` logical
-  partitions from the stock side's fastbootd;
 - no NTFS (exFAT/FAT still work via FUSE for external SDs);
 - English-only UI;
 - no OrangeFox features (themes, Fox addons, MIUI OTA handling).

@@ -9,6 +9,10 @@ name: Build TWRP 12.1
 #
 #  * Every push to twrp-12.1 (or a manual run) builds the recovery image
 #    and stores it as a workflow *artifact* (30 day retention).
+#  * fastbootd is INCLUDED on this branch (TW_INCLUDE_FASTBOOTD := true):
+#    `adb reboot fastbootd` boots this ramdisk into fastbootd - the only
+#    route to flash super/logical partitions while the recovery occupies
+#    boot_a (the stock side is unreachable then).
 #  * Pushing a tag whose name starts with "v" (e.g. v1.0-twrp) additionally
 #    publishes a full GitHub *Release* with the image, md5 and bundle zip.
 #
@@ -260,11 +264,15 @@ jobs:
       # The AOSP build already refuses to emit an image larger than
       # BOARD_BOOTIMAGE_PARTITION_SIZE, so over-size is normally caught at
       # build time; this step is the belt-and-braces backstop. If the image
-      # ever does come in over, tools/slim_bootimg.py (the same surgical
-      # ramdisk pruner the OrangeFox build uses) runs as the fallback - it
-      # is safe on plain TWRP images: every Fox-specific cut and manifest
-      # regeneration inside it is a no-op when the entry is absent.
-      - name: Enforce the stock 32 MiB boot_a limit (slim backstop)
+      # ever does come in over, tools/slim_bootimg.py runs in --no-cut
+      # mode: it recompresses the ramdisk (gzip -9, zopfli fallback) and
+      # repacks the image WITHOUT removing a single ramdisk entry. That is
+      # deliberate: fastbootd is a required feature on this branch and the
+      # OrangeFox cut list would silently remove it (the slimmed Fox image
+      # is exactly how fastbootd was lost the first time). If even the
+      # repack cannot fit the image, the run fails loudly - the trimming
+      # decision then belongs in BoardConfig.mk, not in CI.
+      - name: Enforce the stock 32 MiB boot_a limit (repack-only backstop)
         run: |
           set -euo pipefail
           OUT="$HOME/twrp_12.1/out/target/product/KI7"
@@ -277,27 +285,26 @@ jobs:
           echo "built image: $SIZE bytes ($(numfmt --to=iec "$SIZE"))"
 
           if [ "$SIZE" -le "$LIMIT" ]; then
-            echo "fits the stock 32 MiB boot_a - no slimming needed"
+            echo "fits the stock 32 MiB boot_a - no repack needed"
             exit 0
           fi
 
-          echo "image is over the limit - running the slim backstop"
-          STUB="$TOOLS/libandroidicu-stub-aarch64.so"
-          python3 "$TOOLS/slim_bootimg.py" "$IMG" "$IMG.slim" --icu-stub "$STUB"
+          echo "image is over the limit - repacking in --no-cut mode (fastbootd and every other entry stay in)"
+          python3 "$TOOLS/slim_bootimg.py" "$IMG" "$IMG.slim" --no-cut
           NEWSIZE=$(stat -c%s "$IMG.slim")
           if [ "$NEWSIZE" -gt "$LIMIT" ] && command -v zopfli >/dev/null 2>&1; then
             echo "gzip-9 result $NEWSIZE > $LIMIT - retrying with zopfli"
             python3 "$TOOLS/slim_bootimg.py" "$IMG" "$IMG.slim" \
-              --icu-stub "$STUB" --zopfli "$(command -v zopfli)"
+              --no-cut --zopfli "$(command -v zopfli)"
             NEWSIZE=$(stat -c%s "$IMG.slim")
           fi
           if [ "$NEWSIZE" -gt "$LIMIT" ]; then
-            echo "::error::slim image is still $NEWSIZE bytes - need more BoardConfig trims"
+            echo "::error::image is still $NEWSIZE bytes after the repack-only backstop. fastbootd is required on this branch, so NO ramdisk entries were cut. Trim deliberately in BoardConfig.mk (see TWRP.md) and re-run."
             exit 1
           fi
-          mv "$IMG" "$IMG.full"     # keep the pre-slim image in out/ (not uploaded)
+          mv "$IMG" "$IMG.full"     # keep the pre-repack image in out/ (not uploaded)
           mv "$IMG.slim" "$IMG"
-          echo "slim boot.img: $NEWSIZE bytes ($(numfmt --to=iec "$NEWSIZE"))"
+          echo "repacked boot.img: $NEWSIZE bytes ($(numfmt --to=iec "$NEWSIZE"))"
 
       # Save the compiler cache even when the build FAILS - while we are
       # iterating on breakages every failed run still warms the cache for

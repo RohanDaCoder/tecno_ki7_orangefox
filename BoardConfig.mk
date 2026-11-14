@@ -139,9 +139,11 @@ BOARD_ROOT_EXTRA_FOLDERS += metadata tranfs
 BOARD_FLASH_BLOCK_SIZE := 131072 # (BOARD_KERNEL_PAGESIZE * 64)
 # TWRP branch: plain TWRP (no OrangeFox theming/fonts/app stack) fits the
 # STOCK 32 MiB boot_a. The size trims below (single language = no CJK font
-# stack, no NTFS-3G/fastbootd/tzdata/lptools/nano) keep the gzipped ramdisk
-# well under the ceiling. CI asserts the final image against 33,554,432
-# bytes and falls back to tools/slim_bootimg.py if it ever grows over.
+# stack, no NTFS-3G/tzdata/lptools/nano) keep the gzipped ramdisk well
+# under the ceiling; fastbootd STAYS IN (required - see the Fastbootd
+# section below). CI asserts the final image against 33,554,432 bytes and
+# falls back to a repack-only (--no-cut) pass of tools/slim_bootimg.py if
+# it ever grows over.
 # No 96 MiB repartition (README Option C) is needed on this branch.
 BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432
 BOARD_DTBOIMG_PARTITION_SIZE := 8388608
@@ -185,9 +187,24 @@ TARGET_RECOVERY_INITRC := $(DEVICE_PATH)/recovery/root/init.recovery.mt6768.rc
 TWRP_INCLUDE_LOGCAT := true
 TARGET_USES_LOGD := true
 
-# Fastbootd - excluded on this branch (size trim; flash super/logical
-# partitions from the stock side's fastbootd instead)
-TW_INCLUDE_FASTBOOTD := false
+# Fastbootd - REQUIRED on this branch (restored 2026-11-14, maintainer
+# decision). Two pieces ship it:
+#   1. TW_INCLUDE_FASTBOOTD := true compiles the fastbootd engine into the
+#      recovery binary (TWRP bootable/recovery Android.mk: the flag adds
+#      -DTW_INCLUDE_FASTBOOTD to the recovery module).
+#   2. device.mk PRODUCT_PACKAGES += fastbootd + the mock fastboot HAL put
+#      /system/bin/fastbootd in the ramdisk; the recovery init.rc starts it
+#      ("service fastbootd /system/bin/fastbootd", on sys.usb.config=fastboot).
+# On this virtual A/B, recovery-as-boot device `adb reboot fastbootd` boots
+# this same boot_a ramdisk into fastbootd - exactly what the stock image
+# does (verified on the live device). While this recovery occupies boot_a
+# the stock side is unreachable, so this ramdisk's fastbootd is the ONLY
+# route to flash super/logical partitions (system/vendor/product/system_ext).
+# Size cost is small (fastbootd engine + a few ext4/sparse libs) and the
+# plain-TWRP ramdisk has several MiB of headroom under the slimmed Fox
+# build, so it stays inside the stock 32 MiB boot_a. The CI backstop never
+# cuts ramdisk entries (repack-only) - see .github/workflows/twrp-build.yml.
+TW_INCLUDE_FASTBOOTD := true
 
 # Tools / resetprop and magiskboot
 TW_INCLUDE_RESETPROP := true

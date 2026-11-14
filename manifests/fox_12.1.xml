@@ -10,7 +10,7 @@
     mkdir ~/OrangeFox_sync && cd ~/OrangeFox_sync
     git clone https://gitlab.com/OrangeFox/sync.git
     cd sync
-    ./orangefox_sync.sh --branch 12.1 --path ~/fox_12.1
+    ./orangefox_sync.sh (branch: 12.1, path: ~/fox_12.1)
 
     git clone https://github.com/RohanDaCoder/tecno_ki7_orangefox.git \
         -b Fox_12.1 ~/fox_12.1/device/tecno/KI7
@@ -29,7 +29,7 @@
     repo init -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-12.1
     mkdir -p .repo/local_manifests
     cp manifests/fox_12.1.xml .repo/local_manifests/tecno_ki7.xml
-    repo sync -c --no-clone-bundle --no-tags -j8
+    repo sync -c -j8   # (add the usual no-clone-bundle / no-tags flags if you like)
     source build/envsetup.sh
     lunch twrp_KI7-userdebug
     mka recoveryimage
