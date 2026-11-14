@@ -137,13 +137,13 @@ BOARD_ROOT_EXTRA_FOLDERS += metadata tranfs
 
 # Partitions
 BOARD_FLASH_BLOCK_SIZE := 131072 # (BOARD_KERNEL_PAGESIZE * 64)
-# Option C (see README): OrangeFox R12.1's ramdisk cannot fit the stock
-# 32 MiB boot_a (a slimmed build still lands ~38-40 MB), so the tree targets
-# a repartitioned 96 MiB boot (stock boot_a merged with the unused 64 MiB
-# vendor_boot_a). CI still reports the image size against the STOCK 32 MiB
-# limit and flags oversized images - repartition FIRST (README Option C),
-# then flash. Do NOT flash this image to an un-repartitioned device.
-BOARD_BOOTIMAGE_PARTITION_SIZE := 100663296
+# TWRP branch: plain TWRP (no OrangeFox theming/fonts/app stack) fits the
+# STOCK 32 MiB boot_a. The size trims below (single language = no CJK font
+# stack, no NTFS-3G/fastbootd/tzdata/lptools/nano) keep the gzipped ramdisk
+# well under the ceiling. CI asserts the final image against 33,554,432
+# bytes and falls back to tools/slim_bootimg.py if it ever grows over.
+# No 96 MiB repartition (README Option C) is needed on this branch.
+BOARD_BOOTIMAGE_PARTITION_SIZE := 33554432
 BOARD_DTBOIMG_PARTITION_SIZE := 8388608
 BOARD_HAS_LARGE_FILESYSTEM := true
 
@@ -185,8 +185,9 @@ TARGET_RECOVERY_INITRC := $(DEVICE_PATH)/recovery/root/init.recovery.mt6768.rc
 TWRP_INCLUDE_LOGCAT := true
 TARGET_USES_LOGD := true
 
-# Fastbootd
-TW_INCLUDE_FASTBOOTD := true
+# Fastbootd - excluded on this branch (size trim; flash super/logical
+# partitions from the stock side's fastbootd instead)
+TW_INCLUDE_FASTBOOTD := false
 
 # Tools / resetprop and magiskboot
 TW_INCLUDE_RESETPROP := true
@@ -197,18 +198,24 @@ TW_INCLUDE_FUSE_EXFAT := true
 TW_NO_FASTBOOT_BOOT := true
 TW_NO_SCREEN_BLANK := true
 TARGET_USES_MKE2FS := true
-TW_INCLUDE_NTFS_3G := true
+# NTFS-3G stack excluded (size trim): exFAT/FAT remain available via the
+# FUSE exfat tools below for external SD cards
+TW_INCLUDE_NTFS_3G := false
 TW_USE_TOOLBOX := true
 TW_EXCLUDE_TWRPAPP := true
 TW_EXCLUDE_APEX := true
 TW_EXCLUDE_PYTHON := true
-TW_EXCLUDE_NANO := false
-TW_EXCLUDE_LPTOOLS := false
-TW_EXCLUDE_LPDUMP := false
+# --- size trims for the stock 32 MiB boot_a (TWRP branch) ---
+# single language (en_US): drops extra translations AND the huge CJK
+# font stack TW_EXTRA_LANGUAGES drags in (~20 MiB uncompressed on its own)
+TW_EXTRA_LANGUAGES := false
+TW_EXCLUDE_TZDATA := true
+TW_EXCLUDE_LPTOOLS := true
+TW_EXCLUDE_LPDUMP := true
+TW_EXCLUDE_NANO := true
+# bash stays on purpose (recovery terminal); MTP stays (USB file transfer)
 TW_EXCLUDE_BASH := false
-TW_EXCLUDE_TZDATA := false
 TW_BACKUP_EXCLUSIONS := /Files/backup
-TW_EXTRA_LANGUAGES := true
 TW_DEFAULT_LANGUAGE := en_US
 TW_SCREEN_BLANK_ON_BOOT := true
 TW_SKIP_ADDITIONAL_FSTAB := true

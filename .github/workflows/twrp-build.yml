@@ -1,0 +1,463 @@
+name: Build TWRP 12.1
+
+# Plain TWRP CI for the TECNO Spark 10 Pro (KI7) device tree (twrp-12.1
+# branch). Same verified device facts as the OrangeFox build on Fox_12.1
+# (prebuilt 4.19 kernel, recovery-as-boot, virtual A/B, FBE + Trustonic
+# keymaster 4.1) - but WITHOUT the OrangeFox layer, which is what makes
+# the image fit the stock 32 MiB boot_a without the 96 MiB repartition
+# (README Option C) the OrangeFox build needs.
+#
+#  * Every push to twrp-12.1 (or a manual run) builds the recovery image
+#    and stores it as a workflow *artifact* (30 day retention).
+#  * Pushing a tag whose name starts with "v" (e.g. v1.0-twrp) additionally
+#    publishes a full GitHub *Release* with the image, md5 and bundle zip.
+#
+#  Maintainer: RohanDaCoder <https://github.com/RohanDaCoder>
+
+on:
+  push:
+    branches: [ twrp-12.1 ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create Releases on v* tags
+
+concurrency:
+  group: twrp-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: TWRP 12.1 for TECNO Spark 10 Pro (KI7)
+    # PINNED to 22.04 on purpose: AOSP 12.1 does not build on 24.04
+    # (Python 3.12 / missing libtinfo5 / OpenSSL 3 breakage).
+    runs-on: ubuntu-22.04
+    timeout-minutes: 330
+
+    steps:
+      - name: Check out the device tree
+        uses: actions/checkout@v6
+
+      # ccache lives INSIDE the source tree on purpose. Soong runs the ninja
+      # build inside an nsjail sandbox (build/soong/ui/build/sandbox_linux.go:
+      # "-R /" makes the whole rootfs READ-ONLY; only $TOP, $TOP/out and /tmp
+      # are bind-mounted writable). A CCACHE_DIR under $HOME dies with
+      # "Failed to create directory ...: Read-only file system".
+      - name: Prepare the ccache directory
+        run: mkdir -p "$HOME/twrp_12.1/out/ccache"
+
+      # Compiler cache: reuse previously compiled objects across runs.
+      # Separate key family from the OrangeFox build (different source
+      # tree, minimal manifest instead of OrangeFox sync) so the two
+      # branches do not thrash each other's cache. TWRP is capped at 4G
+      # (vs the fox build's 8G) so both stay under GitHub's 10 GB repo
+      # cache quota; ccache evicts internally via LRU beyond that.
+      #
+      # Key strategy: unique key per commit (github.sha), so every run SAVES
+      # a fresh full snapshot (also on failed builds - warm cache while
+      # iterating); restore-keys picks the newest prefix match; LRU eviction
+      # then keeps roughly one entry. Device-tree or upstream changes do
+      # not need key rotation: ccache is content-addressed, stale entries
+      # simply miss and recompile.
+      - name: Restore compiler cache (ccache)
+        id: ccache_cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/twrp_12.1/out/ccache
+          key: ccache-twrp_12.1-KI7-v1-${{ github.sha }}
+          restore-keys: |
+            ccache-twrp_12.1-KI7-v1-
+
+      - name: Maximize disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                       /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache \
+                       /usr/local/julia* /opt/az /opt/hiredis 2>/dev/null || true
+          sudo docker image prune -af >/dev/null 2>&1 || true
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            git gnupg flex bison build-essential zip unzip curl \
+            zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 \
+            libncurses5-dev libncursesw5-dev x11proto-core-dev libx11-dev \
+            lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc fontconfig \
+            libssl-dev rsync python3 python3-pip bc lzop patch cpio ccache zopfli
+          # compat libs (present on 22.04, may vanish on newer runners)
+          sudo apt-get install -y -qq libtinfo5 libncurses5 2>/dev/null \
+            || echo "::warning::libtinfo5/libncurses5 unavailable - continuing"
+          # repo tool
+          sudo curl -sSL https://storage.googleapis.com/git-repo-downloads/repo \
+               -o /usr/local/bin/repo
+          sudo chmod a+rx /usr/local/bin/repo
+          # git identity (repo init + any git operations)
+          git config --global user.name  "RohanDaCoder"
+          git config --global user.email "102975537+RohanDaCoder@users.noreply.github.com"
+          repo version
+
+      - name: Add swap file (OOM safety)
+        run: |
+          if sudo fallocate -l 10G /mnt/twrp-swap 2>/dev/null; then
+            sudo chmod 600 /mnt/twrp-swap
+            sudo mkswap /mnt/twrp-swap >/dev/null
+            sudo swapon /mnt/twrp-swap || true
+            echo "swap enabled on /mnt"
+          else
+            echo "::warning::could not create swap - continuing without it"
+          fi
+          free -h
+
+      # Plain minimal TWRP manifest (the same base the OrangeFox sync uses
+      # underneath, minus the OrangeFox layer). twrp-12.1 is the branch for
+      # Android 12.1-era devices with prebuilt kernels; a 12.1-built TWRP
+      # decrypts this phone's Android 13 /data (fscrypt v2 is self-contained
+      # in the recovery ramdisk - the Fox build on the same base already
+      # proves it on this exact device).
+      - name: Sync minimal TWRP twrp-12.1 sources
+        run: |
+          mkdir -p "$HOME/twrp_12.1"
+          cd "$HOME/twrp_12.1"
+          repo init --depth=1 \
+            -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git \
+            -b twrp-12.1
+          repo sync -c --no-clone-bundle --no-tags -j"$(nproc)"
+          df -h /
+          du -sh "$HOME/twrp_12.1" || true
+
+      - name: Install the KI7 device tree
+        run: |
+          rm -rf "$HOME/twrp_12.1/device/tecno/KI7"
+          mkdir -p "$HOME/twrp_12.1/device/tecno"
+          cp -a "$GITHUB_WORKSPACE" "$HOME/twrp_12.1/device/tecno/KI7"
+          rm -rf "$HOME/twrp_12.1/device/tecno/KI7/.git"
+          ls -la "$HOME/twrp_12.1/device/tecno/KI7"
+
+      # Upstream regression patch carried over from the fox workflow.
+      # OrangeFox's recovery tip (6bd902d1, 2026-10-26) used AID_MEDIA_RW
+      # without including the header that defines it. TeamWin's own
+      # android-12.1 recovery is expected to be clean, and this patch is
+      # fully self-retiring: it greps for files that use the macro without
+      # the include and patches ONLY those; if nothing matches, it is a
+      # no-op that just logs "nothing to patch".
+      - name: Patch upstream AID_MEDIA_RW regression (self-retiring)
+        shell: bash {0}
+        run: |
+          set -u
+          cd "$HOME/twrp_12.1/bootable/recovery"
+
+          HDR="$(find "$HOME/twrp_12.1/system/core" \
+                 -path '*/private/android_filesystem_config.h' 2>/dev/null | head -n1)"
+          if [ -n "$HDR" ]; then
+            echo "AID header found: $HDR"
+          else
+            echo "::warning::android_filesystem_config.h not found - injecting fallback #define"
+          fi
+
+          PATCHED=0
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            if grep -q 'android_filesystem_config' "$f"; then
+              echo "ok (already has include): $f"
+              continue
+            fi
+            echo "patching: $f"
+            if [ -n "$HDR" ]; then
+              sed -i '0,/^#include/ s|^#include|#include <private/android_filesystem_config.h> /* TWRP CI fix: AID_MEDIA_RW */\n&|' "$f"
+              grep -q 'android_filesystem_config' "$f" || {
+                echo "sed anchor failed on $f - prepending instead"
+                sed -i '1i #include <private/android_filesystem_config.h> /* TWRP CI fix: AID_MEDIA_RW */' "$f"
+              }
+            else
+              sed -i '0,/^#include/ s|^#include|#ifndef AID_MEDIA_RW\n#define AID_MEDIA_RW 1023\n#endif /* TWRP CI fix */\n&|' "$f"
+              grep -q '#define AID_MEDIA_RW' "$f" || {
+                echo "sed anchor failed on $f - prepending instead"
+                sed -i '1i #ifndef AID_MEDIA_RW\n#define AID_MEDIA_RW 1023\n#endif /* TWRP CI fix */' "$f"
+              }
+            fi
+            PATCHED=$((PATCHED + 1))
+          done < <(grep -rl --include='*.cpp' --include='*.hpp' --include='*.h' 'AID_MEDIA_RW' .)
+
+          echo "patched $PATCHED file(s)"
+          if [ "$PATCHED" -eq 0 ]; then
+            echo "nothing to patch (TeamWin tree already clean) - continuing"
+          else
+            echo "--- verification (first 3 hits) ---"
+            grep -rn --include='*.cpp' --include='*.hpp' --include='*.h' \
+                 -e 'android_filesystem_config' -e '#define AID_MEDIA_RW' . | head -3 || true
+          fi
+
+      - name: Build TWRP (recovery-as-boot, virtual A/B)
+        # 'bash' WITHOUT '-e' on purpose (GitHub's default is 'bash -e'):
+        # AOSP envsetup.sh ends with benign commands that return non-zero
+        # under 'set -e' and would kill the step right after the lunch scan.
+        # envsetup also uses unset vars freely, so no 'set -u'.
+        # Errors are handled explicitly below instead.
+        shell: bash {0}
+        run: |
+          cd "$HOME/twrp_12.1"
+          export LC_ALL="C"
+          export ALLOW_MISSING_DEPENDENCIES=true
+
+          # ccache: reuse compiled objects from previous runs. CCACHE_DIR
+          # MUST stay inside the source tree: soong's nsjail sandbox mounts
+          # / read-only and only $TOP/$TOP/out are writable.
+          #
+          # COMPILERCHECK=content: the prebuilt clang's mtime changes on
+          # every repo sync; hashing content instead keeps the cache valid
+          # across syncs. SLOPPINESS: git checkouts reset header c/mtimes
+          # each sync, which would otherwise look like changed headers.
+          export USE_CCACHE=1
+          export CCACHE_DIR="$HOME/twrp_12.1/out/ccache"
+          export CCACHE_EXEC="$(command -v ccache)"
+          export CCACHE_COMPILERCHECK=content
+          export CCACHE_BASEDIR="$HOME/twrp_12.1"
+          export CCACHE_SLOPPINESS="file_macro,locale,time_macros,include_file_ctime,include_file_mtime"
+          mkdir -p "$CCACHE_DIR"
+          ccache -M 4G        # share the 10 GB repo cache quota with the fox build
+          ccache -z           # zero the counters for this run
+          echo "== ccache before build =="
+          ccache -s || true
+
+          echo "== sourcing build/envsetup.sh =="
+          source build/envsetup.sh
+
+          # NOTE: device/tecno/KI7/vendorsetup.sh is NOT sourced here - it
+          # only exports OrangeFox build vars (FOX_*/OF_*), which the plain
+          # TWRP build ignores.
+
+          echo "== lunch twrp_KI7-eng =="
+          lunch twrp_KI7-eng
+          if [ $? -ne 0 ]; then
+            echo "::error::lunch twrp_KI7-eng failed"
+            exit 1
+          fi
+
+          echo "== mka recoveryimage (virtual A/B, recovery-as-boot) =="
+          # KI7 has no dedicated recovery partition (BOARD_USES_RECOVERY_AS_BOOT
+          # := true), so the recoveryimage target produces boot.img - the
+          # flow documented in manifests/fox_12.1.xml for plain TWRP.
+          mka recoveryimage
+          BUILD_RC=$?
+
+          echo "== ccache after build =="
+          ccache -s || true
+
+          echo "---- build output ----"
+          ls -la out/target/product/KI7/*.img || true
+
+          if [ $BUILD_RC -ne 0 ]; then
+            echo "::error::mka failed with exit code $BUILD_RC"
+            exit $BUILD_RC
+          fi
+
+      # Size guard. Plain TWRP with the BoardConfig trims on this branch is
+      # expected to fit the stock 32 MiB boot_a WITHOUT any post-build
+      # surgery (unlike OrangeFox, whose ramdisk needed the slim pipeline).
+      # The AOSP build already refuses to emit an image larger than
+      # BOARD_BOOTIMAGE_PARTITION_SIZE, so over-size is normally caught at
+      # build time; this step is the belt-and-braces backstop. If the image
+      # ever does come in over, tools/slim_bootimg.py (the same surgical
+      # ramdisk pruner the OrangeFox build uses) runs as the fallback - it
+      # is safe on plain TWRP images: every Fox-specific cut and manifest
+      # regeneration inside it is a no-op when the entry is absent.
+      - name: Enforce the stock 32 MiB boot_a limit (slim backstop)
+        run: |
+          set -euo pipefail
+          OUT="$HOME/twrp_12.1/out/target/product/KI7"
+          TOOLS="$GITHUB_WORKSPACE/tools"
+          IMG="$OUT/boot.img"
+          [ -f "$IMG" ] || { echo "::error::no boot.img in $OUT"; exit 1; }
+
+          LIMIT=33554432   # stock boot_a partition = 32 MiB exactly
+          SIZE=$(stat -c%s "$IMG")
+          echo "built image: $SIZE bytes ($(numfmt --to=iec "$SIZE"))"
+
+          if [ "$SIZE" -le "$LIMIT" ]; then
+            echo "fits the stock 32 MiB boot_a - no slimming needed"
+            exit 0
+          fi
+
+          echo "image is over the limit - running the slim backstop"
+          STUB="$TOOLS/libandroidicu-stub-aarch64.so"
+          python3 "$TOOLS/slim_bootimg.py" "$IMG" "$IMG.slim" --icu-stub "$STUB"
+          NEWSIZE=$(stat -c%s "$IMG.slim")
+          if [ "$NEWSIZE" -gt "$LIMIT" ] && command -v zopfli >/dev/null 2>&1; then
+            echo "gzip-9 result $NEWSIZE > $LIMIT - retrying with zopfli"
+            python3 "$TOOLS/slim_bootimg.py" "$IMG" "$IMG.slim" \
+              --icu-stub "$STUB" --zopfli "$(command -v zopfli)"
+            NEWSIZE=$(stat -c%s "$IMG.slim")
+          fi
+          if [ "$NEWSIZE" -gt "$LIMIT" ]; then
+            echo "::error::slim image is still $NEWSIZE bytes - need more BoardConfig trims"
+            exit 1
+          fi
+          mv "$IMG" "$IMG.full"     # keep the pre-slim image in out/ (not uploaded)
+          mv "$IMG.slim" "$IMG"
+          echo "slim boot.img: $NEWSIZE bytes ($(numfmt --to=iec "$NEWSIZE"))"
+
+      # Save the compiler cache even when the build FAILS - while we are
+      # iterating on breakages every failed run still warms the cache for
+      # the next attempt. Skipped on an exact key hit (re-run of the same
+      # commit, nothing new to store).
+      - name: Save compiler cache (ccache)
+        if: always() && steps.ccache_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        continue-on-error: true
+        with:
+          path: ~/twrp_12.1/out/ccache
+          key: ccache-twrp_12.1-KI7-v1-${{ github.sha }}
+
+      - name: Collect the recovery image
+        run: |
+          set -euo pipefail
+          OUT="$HOME/twrp_12.1/out/target/product/KI7"
+          ls -la "$OUT" || true
+          cd "$OUT"
+          IMG=""
+          for f in boot.img recovery.img; do
+            if [ -f "$f" ]; then IMG="$f"; break; fi
+          done
+          if [ -z "$IMG" ]; then
+            echo "::error::No recovery image found in $OUT"
+            exit 1
+          fi
+          echo "Recovery image found: $IMG"
+
+          # TWRP version from the synced recovery source (e.g. 3.7.1_12)
+          TWVER="$(grep -oP 'TW_MAIN_VERSION_STR\s+"[^"]+"' \
+                   "$HOME/twrp_12.1/bootable/recovery/variables.h" 2>/dev/null \
+                   | head -n1 | grep -oP '"\K[^"]+')"
+          [ -n "$TWVER" ] || TWVER="3.7.1_12"
+          DATE="$(date -u +%Y%m%d)"
+          IMGNAME="twrp-${TWVER}-${DATE}-KI7.img"
+          echo "TWRP version string: $TWVER"
+
+          STAGE="$GITHUB_WORKSPACE/release"
+          mkdir -p "$STAGE"
+          cp "$OUT/$IMG" "$STAGE/$IMGNAME"
+          cd "$STAGE"
+          md5sum "$IMGNAME" > "$IMGNAME.md5"
+          MD5=$(awk '{print $1}' "$IMGNAME.md5")
+
+          SIZE=$(stat -c%s "$IMGNAME")
+          LIMIT=33554432   # stock boot_a partition = 32 MiB
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+            SIZE_STATUS="OVERSIZED - does NOT fit the stock 32 MiB boot_a"
+          else
+            SIZE_STATUS="fits the stock 32 MiB boot_a partition"
+          fi
+
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          RELEASE_NAME="${GITHUB_REF_NAME//\//_}"
+          ARTIFACT_NAME="TWRP-KI7-r${GITHUB_RUN_NUMBER}-${RELEASE_NAME}"
+          {
+            echo "SHORT_SHA=$SHORT_SHA"
+            echo "RELEASE_NAME=$RELEASE_NAME"
+            echo "ARTIFACT_NAME=$ARTIFACT_NAME"
+            echo "IMAGE_NAME=$IMGNAME"
+            echo "IMAGE_SIZE=$SIZE"
+            echo "SIZE_STATUS=$SIZE_STATUS"
+            echo "IMAGE_MD5=$MD5"
+            echo "TW_VERSION=$TWVER"
+          } >> "$GITHUB_ENV"
+
+          {
+            echo "TWRP ${TWVER} (unofficial) for TECNO Spark 10 Pro (KI7)"
+            echo "=========================================================="
+            echo "Build date : $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo "Commit     : $GITHUB_SHA (ref: $RELEASE_NAME)"
+            echo "Runner     : $(nproc) cores, Ubuntu 22.04"
+            echo "Base       : minimal-manifest-twrp twrp-12.1 (TWRP ${TWVER})"
+            echo "Image      : $IMGNAME"
+            echo "Image size : $SIZE bytes ($(numfmt --to=iec "$SIZE"))"
+            echo "boot_a     : $SIZE_STATUS"
+            echo "md5        : $MD5"
+            echo "Maintainer : RohanDaCoder"
+          } > build_info.txt
+
+          zip -9 "${ARTIFACT_NAME}.zip" "$IMGNAME" "$IMGNAME.md5" build_info.txt
+          ls -la "$STAGE"
+
+          {
+            echo "### TWRP ${TWVER} build - TECNO Spark 10 Pro (KI7)"
+            echo ""
+            echo "- Image: **$IMGNAME** - $SIZE bytes ($(numfmt --to=iec "$SIZE"))"
+            echo "- 32 MiB boot_a check: $SIZE_STATUS"
+            echo "- md5: $MD5"
+            echo "- Commit: $SHORT_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Normal commits: build result only goes to the workflow artifacts.
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: |
+            release/*.img
+            release/*.img.md5
+            release/build_info.txt
+            release/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      # Tags starting with "v": publish a full GitHub Release.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/release"
+          TAG="${GITHUB_REF_NAME}"
+
+          {
+            echo "## TWRP ${TW_VERSION} (Unofficial) - TECNO Spark 10 Pro (KI7)"
+            echo ""
+            echo "**Release:** $RELEASE_NAME - **Built:** $(date -u '+%Y-%m-%d %H:%M UTC') - **Commit:** $SHORT_SHA"
+            echo "**Maintainer:** RohanDaCoder ([@RohanDaCoder](https://github.com/RohanDaCoder))"
+            echo ""
+            echo "### Image"
+            echo "- File: **$IMAGE_NAME** ($IMAGE_SIZE bytes - $SIZE_STATUS)"
+            echo "- md5: $IMAGE_MD5"
+            echo ""
+            echo "### Install (KI7 is recovery-as-boot - there is NO recovery partition)"
+            echo ""
+            echo "1. Back up your stock boot FIRST and keep it forever:"
+            echo "   adb shell su -c \"dd if=/dev/block/by-name/boot_a of=/sdcard/stock_boot_a.img\""
+            echo "2. Push and flash the image to the ACTIVE slot:"
+            echo "   adb push $IMAGE_NAME /sdcard/twrp.img"
+            echo "   adb shell su -c \"dd if=/sdcard/twrp.img of=/dev/block/by-name/boot_a\""
+            echo "3. Reboot to recovery:"
+            echo "   adb reboot recovery"
+            echo "4. To return to HiOS: dd the saved stock_boot_a.img back to boot_a."
+            echo ""
+            echo "### Warnings"
+            echo ""
+            echo "- KI7's boot_a is only 32 MiB. This image $SIZE_STATUS."
+            echo "- Read the repo README and TWRP.md before touching anything."
+            echo "- You are solely responsible for what you flash. Bootloader must be unlocked."
+            echo ""
+            echo "### Credits"
+            echo ""
+            echo "- Maintainer: **RohanDaCoder**"
+            echo "- KH7n recovery tree: isus203 / tecno-mt6768"
+            echo "- twrpdtgen: SebaUbuntu - TWRP team"
+          } > release_notes.md
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release for $TAG already exists - uploading assets (clobber)"
+            gh release upload "$TAG" "$IMAGE_NAME" "$IMAGE_NAME.md5" *.zip \
+              --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "TWRP ${TW_VERSION} - TECNO Spark 10 Pro (KI7) - $TAG" \
+              --notes-file release_notes.md \
+              --latest \
+              "$IMAGE_NAME" "$IMAGE_NAME.md5" *.zip
+          fi
+          echo "Release $TAG published."
